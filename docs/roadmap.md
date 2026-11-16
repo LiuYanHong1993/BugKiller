@@ -10,7 +10,7 @@
 
 ## M2 —— Web UI + 会话管理 + MCP ✅ 2026-11-04 完成
 - [x] `apps/web`：会话列表 / 消息流 / 工具卡片 / 审批卡（原生三件套，无构建）
-- [x] `kernel/src/server`：内核 HTTP 服务（127.0.0.1 随机端口 + 令牌，对照 dsh-host-webserver）
+- [x] `kernel/src/server`：内核 HTTP 服务（127.0.0.1 随机端口 + 令牌，对照 内核
 - [x] `kernel/src/mcp`：stdio MCP 客户端 + 自研 memory 服务器 + `mcp__<server>__<tool>` 挂载
 - [x] `kernel/src/server/approvals`：审批中枢（超时 fail-closed 自动拒绝）
 - [x] 审批留痕：approval_request / approval_decision 事件写入会话 JSONL（audit_receipt 落库挪到 M3）
@@ -74,7 +74,7 @@
 - [x] 编辑 diff 视图（LCS 行级差异：工具行 +N −R + 展开彩色 diff 块）
 - [x] SQLite 投影（node:sqlite 懒加载：data/sessions.db，存量回填 + /api/search 全文检索，
       侧栏搜索联动「正文命中」分组；无 --experimental-sqlite 时优雅降级）
-- [x] 上下文页（对照智作「上下文」Tab）：统计卡 ×6（轮步/计费/工具/活跃时长/模型/压缩）+
+- [x] 上下文页：统计卡 ×6（轮步/计费/工具/活跃时长/模型/压缩）+
       Token 组成环 + 耗时环 + 当前上下文组成条（系统/用户/回复/工具结果 估算）+
       上下文趋势柱图（压缩虚线标记）+ 上下文浏览器；流式回合带 usage（stream_options include_usage）
 - [x] MCP Streamable HTTP 传输（McpHttpClient：JSON/SSE 双兼容 + Mcp-Session-Id 维持；
@@ -91,7 +91,7 @@
 - [x] 自绘一体化标题栏（无边框：品牌+版本+窗口键+拖动/缩放/双击最大化）
 - [x] 消息编辑重发（✎ → 截断历史 → 干净重渲染 → 重发）
 - [x] 体验四件套：拖拽上传 / Ctrl+V 粘贴图片 / 会话置顶 / 消息复制（✎/⧉）
-- [x] 办公套件页（对照智作）：页头（←/创建专家/导入专家）+ 四 Tab：
+- [x] 办公套件页：页头（←/创建专家/导入专家）+ 四 Tab：
       专家（agents.json + 自定义 localStorage + 已安装/公开 + 召唤闭环）、
       技能（内核工具注册表实况）、连接器（MCP/插件）、知识库（notes 笔记）
 - [x] 轨迹页还原（统计条 + 过滤 + 三车道时间线甘特 + 轮次分组步骤行）
@@ -100,7 +100,7 @@
 ---
 
 ## M6 —— 交互与流式（UI v3）✅ 2026-11-11 完成
-- [x] 布局对齐智作：近黑主题 + 暗色标题栏（DWM）+ 行式侧栏菜单（线性 SVG 图标）+ 真彩色 exe 图标
+- [x] 布局：近黑主题 + 暗色标题栏（DWM）+ 行式侧栏菜单（线性 SVG 图标）+ 真彩色 exe 图标
 - [x] 侧栏完整功能：搜索（🔍 展开）+ 可折叠项目分组（计数/展开其余 N 个/右键归组·重命名·删除）+ 账号菜单
 - [x] 功能页：项目/产品管理（分组 CRUD + 会话删除）、办公套件（notes/ 笔记编辑器，沙箱守卫 API）、
       云智能体（policy/agents.json 卡片 → 一键建会话注入开场）

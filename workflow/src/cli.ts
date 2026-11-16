@@ -1,4 +1,4 @@
-// 工作流 CLI（对照智作 stratex-flow.mjs）：
+// 工作流 CLI（工作流 CLI）：
 //   stdin  ：WorkflowDef JSON
 //   stdout ：NDJSON 事件流（机器消费）
 //   stderr ：人类可读日志
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   const engine = new WorkflowEngine({
     runDir: resolve(process.cwd(), 'data', 'workflows'),
     runner,
-    // stdout：纯事件 NDJSON（对照 stratex-flow 契约）
+    // stdout：纯事件 NDJSON（对照 工作流引擎 契约）
     onEvent: (ev) => console.log(JSON.stringify(ev)),
     // stderr：人类日志
     log: (l) => console.error(l),

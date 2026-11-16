@@ -1,4 +1,4 @@
-﻿// agent-platform Web UI v3 —— 对齐智作·开发者平台布局
+﻿// agent-platform Web UI v3 —— 布局
 // 左对齐活动流 / 思考折叠行 / 紧凑工具行 / 对话-轨迹-上下文 Tab / 状态栏 / 权限徽章
 // 零依赖；API 层与 M2 一致
 
@@ -274,7 +274,7 @@ function updateTitle(t) {
   postToHost({ type: 'session-title', title: t });
 }
 
-/* ---------------- 会话分组（对照智作侧栏：项目分组 + 计数 + 展开其余） ---------------- */
+/* ---------------- 会话分组 ---------------- */
 
 const GROUP_CAP = 5;
 
@@ -722,7 +722,7 @@ async function renderProjectsPage() {
   updateStatusBar();
 }
 
-/* ---- 办公套件（对照智作：页头 + 四 Tab + 已安装/公开分区 + 专家卡双列） ---- */
+/* ---- 办公套件 ---- */
 
 function loadCustomAgents() {
   try { return JSON.parse(localStorage.getItem('myagentCustomAgents') || '[]') || []; } catch { return []; }
@@ -948,7 +948,7 @@ function renderOfficeConnectors(listWrap) {
   listWrap.innerHTML =
     `<div class="office-sec-t">已挂载连接器</div>` +
     `<div class="conn-list"><div class="expert-card"><div class="ec-top"><span class="ec-av">🔌</span><span class="ec-nm">MCP 服务器</span><span class="ec-tag">${s.mcp || '无'}</span></div>` +
-    `<div class="ec-ds">stdio 传输 · policy/mcp-servers.json 声明；HTTP 传输已支持 url 声明（对照智作 streamable http）。</div>` +
+    `<div class="ec-ds">stdio 传输 · policy/mcp-servers.json 声明；HTTP 传输已支持 url 声明。</div>` +
     `<div class="ec-ops dim">自动挂载 · 内核启动时连接</div></div>` +
     `<div class="expert-card"><div class="ec-top"><span class="ec-av">🧩</span><span class="ec-nm">插件</span><span class="ec-tag">plugins/plugins.json</span></div>` +
     `<div class="ec-ds">cordis 风格装配：manifest + overlay patch；当前已装载 example-echo。</div>` +
@@ -1175,7 +1175,7 @@ function switchTab(tab) {
   else reloadDialog();
 }
 
-/* ---------------- 上下文页（对照智作：统计卡 / Token 组成环 / 耗时环 / 组成条 / 趋势 / 浏览器） ---------------- */
+/* ---------------- 上下文页 ---------------- */
 
 function fmtNum(n) {
   n = Number(n) || 0;
@@ -1365,7 +1365,7 @@ async function pollEvents() {
 }
 
 /** 轨迹 Tab：增量追加事件行 */
-/* ---------------- 轨迹页（对照智作：统计条 + 过滤 + 时间线 + 轮次分组步骤行） ---------------- */
+/* ---------------- 轨迹页 ---------------- */
 
 const traceOpts = { collapseRounds: false, collapseTools: false, q: '' };
 
@@ -1595,7 +1595,7 @@ function renderEvent(ev) {
   }
 }
 
-/* ---------------- 渲染件（回合分组：对照智作「用时 X · N 个工具失败 ▸」摘要行） ---------------- */
+/* ---------------- 渲染件（回合分组：「用时 X · N 个工具失败 ▸」摘要行） ---------------- */
 
 function currentTurnEl() {
   return state.currentTurn && state.currentTurn.isConnected ? state.currentTurn : $('stream');
@@ -1729,7 +1729,7 @@ function appendNote(text, isErr) {
   scrollBottom();
 }
 
-/** 思考折叠行（对照智作 ℋ 思考 · … ▸） */
+/** 思考折叠行 */
 function appendThinkRow(text) {
   const t = String(text ?? '').trim();
   if (!t) return;
@@ -2165,7 +2165,7 @@ function renderSettingsPage() {
     `<div class="ne-foot"><button class="pbtn accent" id="setSave">保存设置</button></div>`;
   stream.appendChild(modelCard);
 
-  // 主题色（对照智作的个性化外观）
+  // 主题色
   const themeCard = pageCard('主题色', '界面强调色，立即生效并记住选择');
   const tBody = themeCard.querySelector('.pc-body');
   const current = loadTheme();
@@ -2274,7 +2274,7 @@ async function renderFeedbackPage() {
   }
 }
 
-/* ---- 左下角账号菜单（对照智作：设置/问题反馈/我的反馈/断开） ---- */
+/* ---- 左下角账号菜单 ---- */
 
 function closeAccountMenu() {
   const m = $('accMenu');
@@ -2307,7 +2307,7 @@ function openAccountMenu() {
   setTimeout(() => document.addEventListener('click', closeAccountMenu, { once: true }), 0);
 }
 
-/** 会话计划卡：读取 todo 工具的任务清单（对照智作「会话计划 1 进行中 · 4 待处理」） */
+/** 会话计划卡：读取 todo 工具的任务清单 */
 async function loadTodos() {
   try {
     const d = await api(`/api/todos/${state.sessionId}`);

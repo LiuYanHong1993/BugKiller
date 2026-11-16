@@ -1,5 +1,5 @@
 // agent loop：系统提示 + 工具调用循环（M1 非流式）
-// 对照智作平台：dsh-agent-loop 的最小子集
+// 智能体执行循环
 
 import type { ChatMessage } from '../llm/types.ts';
 import type { OpenAiCompatibleProvider } from '../llm/provider.ts';
@@ -114,7 +114,7 @@ function contentToText(content: ChatMessage['content']): string {
 }
 
 /**
- * 上下文压缩（对照智作 compaction）：历史超阈值时，
+ * 上下文压缩（）：历史超阈值时，
  * 把较早的一段（截到最近的 user 边界，保证 tool 配对完整）LLM 摘要化并落盘 'compaction' 事件。
  */
 async function compactIfNeeded(

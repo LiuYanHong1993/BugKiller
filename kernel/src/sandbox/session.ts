@@ -1,5 +1,5 @@
 // 沙箱会话（M5）：写前镜像（preimage）+ 守卫 + 会话级回滚
-// 对照智作 write-guard：守卫名单 fail-closed；对照沙箱设计：写前留 preimage 才有回滚资本
+// 守卫名单 fail-closed；写前留 preimage 才有回滚资本
 
 import { randomBytes, createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile, appendFile } from 'node:fs/promises';

@@ -1,4 +1,4 @@
-// 工作流类型（对照智作 stratex-flow 的 stdin JSON → stdout NDJSON 契约）
+// 工作流类型（stdin JSON → stdout NDJSON 契约）
 
 export interface StepDef {
   id: string;

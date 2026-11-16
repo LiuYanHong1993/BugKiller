@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 凭据库（M4）：Windows DPAPI（CurrentUser 作用域）加密保管
-// 对照智作 credentials 插件：密钥永不落明文；进程内存取，密文绑定当前系统用户
+// 密钥永不落明文；进程内存取，密文绑定当前系统用户
 // 用法：node vault.cjs set <name>   （密钥从 stdin 读入）
 //       node vault.cjs get <name>   （密钥写 stdout —— 仅供壳层注入内核）
 //       node vault.cjs list | delete <name>

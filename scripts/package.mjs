@@ -1,7 +1,7 @@
 // 打包脚本（M5+）：构建带签名的 Windows 安装包
 //   node scripts/package.mjs
 // 产物：dist/agent-platform-<version>.zip + dist/manifest.json
-// 安全模型（对照智作）：
+// 安全模型：
 //   - 私钥 keys/package-key.pem 只留在构建机（绝不进包）
 //   - 公钥注入随包的 verify-package.mjs，安装器安装前先验签名 + 全量 sha256
 //   - 私钥丢失 = 无法再签同源更新（与真实发布流程一致）

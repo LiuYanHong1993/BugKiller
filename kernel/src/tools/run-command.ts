@@ -1,4 +1,4 @@
-// run_command 工具：受控命令执行（对照智作 bash/pwsh 工具）
+// run_command 工具：受控命令执行
 // 安全模型：必须过审批门 + 固定超时 + 输出截断 + 工作区内 cwd
 
 import { spawn } from 'node:child_process';

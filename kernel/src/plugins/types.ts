@@ -1,5 +1,5 @@
 // 插件契约（cordis 式最小子集）：manifest + setup(ctx) + 工具贡献
-// 对照智作平台：@cordis/plugin-core（apply/ctx.on/dispose）的能力裁剪版
+// 插件核心（apply/ctx.on/dispose）能力裁剪版
 
 import type { ToolDef } from '../tools/types.ts';
 
@@ -37,7 +37,7 @@ export interface PluginManifest {
   plugins?: PluginDecl[];
 }
 
-/** 对照智作 profile/overlay.patch.yml；零依赖阶段用 JSON 等价表达（语义一致） */
+/** 零依赖阶段用 JSON 等价表达 */
 export interface OverlayPatch {
   disable?: string[];
   config?: Record<string, Record<string, unknown>>;

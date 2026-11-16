@@ -1,5 +1,5 @@
 // 工作流工具步骤执行器（M5）：步骤 = 带工具的 agent loop（无会话库落盘）
-// 写操作经沙箱（守卫 + 写前镜像）；对照智作 autonomous 流程节点的能力面
+// 写操作经沙箱（守卫 + 写前镜像）；autonomous 流程节点的能力面
 
 import type { ChatMessage } from '../../kernel/src/llm/types.ts';
 import type { OpenAiCompatibleProvider } from '../../kernel/src/llm/provider.ts';

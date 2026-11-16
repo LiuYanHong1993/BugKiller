@@ -19,10 +19,15 @@ if (-not $NodePath) {
   if ($cmd) { $NodePath = $cmd.Source }
 }
 if (-not $NodePath -or -not (Test-Path $NodePath)) {
-  # 智作平台自带的运行时作为兜底候选
-  $bundled = Get-ChildItem "$env:USERPROFILE\.stratex\runtimes\node\versions" -Directory -ErrorAction SilentlyContinue |
-    Sort-Object Name -Descending | Select-Object -First 1
-  if ($bundled) { $NodePath = Join-Path $bundled.FullName 'node.exe' }
+  # 常见 Node 安装位置作为兜底候选
+  $candidates = @(
+    "$env:ProgramFiles\nodejs\node.exe",
+    "$env:LOCALAPPDATA\Programs\nodejs\node.exe",
+    "$env:LOCALAPPDATA\nvm\current\node.exe"
+  )
+  foreach ($cand in $candidates) {
+    if (Test-Path $cand) { $NodePath = $cand; break }
+  }
 }
 if (-not $NodePath -or -not (Test-Path $NodePath)) {
   throw '未找到 Node.js（需要 >= 22.6）。请先安装 Node，或用 -NodePath 指定 node.exe 路径。'

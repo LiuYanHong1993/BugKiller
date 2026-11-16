@@ -1,4 +1,4 @@
-// todo 工具：会话级任务清单（对照智作的「会话计划」卡）
+// todo 工具：会话级任务清单（）
 // 存储：data/todos/<sessionId>.json（宿主 ctx 需带 sessionId）
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';

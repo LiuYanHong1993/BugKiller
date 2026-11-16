@@ -1,4 +1,4 @@
-/* agent-platform Web UI v3.1 —— 色板对齐智作（近黑主题）+ 线性图标布局 */
+/* agent-platform Web UI v3.1 —— 色板（近黑主题）+ 线性图标布局 */
 
 :root {
   --bg: #0d0e10;
@@ -61,7 +61,7 @@ body {
   border: 1px solid var(--line); border-radius: 999px; padding: 0 6px;
 }
 
-/* 行式菜单（对照智作侧栏：图标 + 文字行） */
+/* 行式菜单 */
 .side-menu { display: flex; flex-direction: column; gap: 1px; }
 .side-menu .menu-item {
   display: flex; align-items: center; gap: 10px;
@@ -198,7 +198,7 @@ button.session-item {
 .session-item.active .dot { background: var(--accent); }
 .session-item .t { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-size: 12.5px; }
 .session-item .time { color: var(--muted); font-size: 10.5px; flex: none; }
-/* 悬停快捷操作（对照智作：🗑 📌 内联图标） */
+/* 悬停快捷操作 */
 .session-item .quick { display: none; gap: 2px; flex: none; margin-left: auto; }
 .session-item .quick .q {
   background: transparent; border: 0; cursor: pointer; font-size: 11px;
@@ -290,7 +290,7 @@ button.session-item {
 .sug-card .s1 { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
 .sug-card .s2 { font-size: 11.5px; color: var(--muted); }
 
-/* ================= 回合分组（对照智作：用时/步骤摘要行 + 折叠过程） ================= */
+/* ================= 回合分组 ================= */
 
 .turn { display: flex; flex-direction: column; gap: 10px; padding-bottom: 4px; }
 
@@ -459,7 +459,7 @@ button.session-item {
 .approval-card .verdict.no { color: var(--bad); }
 .approval-card .verdict.wait { color: var(--warn); }
 
-/* diff 差异块（对照智作编辑 diff） */
+/* diff 差异块 */
 .diff {
   font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
   background: #0a0b0d; border-radius: 8px; padding: 8px 10px;
@@ -480,7 +480,7 @@ button.session-item {
 .trace-row .tt { color: var(--accent); flex: none; width: 128px; }
 .trace-row .tx { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* 轨迹页（对照智作） */
+/* 轨迹页 */
 .trace-stats {
   font-size: 12.5px; color: var(--text-dim);
   background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius);
@@ -819,7 +819,7 @@ button.session-item {
 .side-menu .menu-item.active { background: var(--panel2); color: var(--text); }
 .side-menu .menu-item.active svg { color: var(--accent); }
 
-/* 账号弹出菜单（对照智作左下角） */
+/* 账号弹出菜单 */
 #accMenu {
   position: fixed; z-index: 60; display: flex; flex-direction: column;
   background: var(--panel3); border: 1px solid var(--line);

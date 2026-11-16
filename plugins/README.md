@@ -11,6 +11,6 @@ cordis 风格：每个插件是一个 npm 包，导出 `name` + `inject` 依赖�
 
 ## 后续插件想法
 
-- `memory`：stdio 拉起一个 MCP 记忆服务（对照智作的 @modelcontextprotocol/server-memory 集成）
+- `memory`：stdio 拉起一个 MCP 记忆服务
 - `im-bridge`：IM 消息进会话（企业微信/钉钉），带负责人私聊守卫（fail-closed）
 - `desktop-pet`：后台助手形象（Live2D/帧动画）

@@ -1,4 +1,4 @@
-// SQLite 投影（M8）：会话/消息的可检索投影（对照智作 dsh-session-persistence 的 SQLite 层）
+// SQLite 投影（M8）：会话/消息的可检索投影
 // node:sqlite 懒加载：无 --experimental-sqlite 标志时优雅降级（available=false）
 
 import { join } from 'node:path';

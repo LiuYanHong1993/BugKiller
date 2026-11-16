@@ -1,4 +1,4 @@
-// 插件装载器：manifest + overlay patch 装配（对照智作 profile/overlay.patch.yml 装配树）
+// 插件装载器：manifest + overlay patch 装配
 // 原则：单个插件失败只影响自身，绝不拖垮内核
 
 import { existsSync, readFileSync } from 'node:fs';

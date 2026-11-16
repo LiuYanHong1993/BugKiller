@@ -1,5 +1,5 @@
 // Docker 隔离执行器（M5）：digest 钉死 + 只读根文件系统 + 默认断网
-// 对照智作 stratex-langgraph：digest-pinned、pull_policy=never、read_only 容器
+// digest 锁定、pull_policy=never、只读容器
 // 本模块负责命令构造（可单测）；实际执行需要 Docker 守护进程（缺失时 fail-closed 报错）
 
 import { spawnSync } from 'node:child_process';

@@ -1,4 +1,4 @@
-// 内核侧车宿主（M4）：stdio JSON-RPC，对照智作 assistant-host 侧车
+// 内核侧车宿主：stdio JSON-RPC
 // 壳（Electron / Node 壳）拉起本进程；带令牌 Web UI 的 URL 经 initialize 结果上报给壳
 // 凭据经 initialize 参数注入 provider——只进内存，零落盘、零日志
 

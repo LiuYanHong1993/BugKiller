@@ -1,5 +1,5 @@
 // 审批中枢：写操作审批在事件流里以「审批卡」呈现，用户在 UI 上放行/拒绝
-// 对照智作平台：approval-request 卡片 + audit-receipt 留痕
+// 审批卡片 + 审计留痕
 
 import { randomBytes } from 'node:crypto';
 import type { ApprovalRequest } from '../tools/types.ts';

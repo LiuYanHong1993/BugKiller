@@ -1,6 +1,6 @@
 // 自研最小 MCP 服务器：长期记忆（stdio 传输）
 // 独立运行：node --experimental-strip-types kernel/src/mcp/servers/memory.ts
-// 对照智作平台：stdio 拉起 @modelcontextprotocol/server-memory 的替代实现（零依赖）
+// stdio 拉起记忆服务的替代实现（零依赖）
 
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';

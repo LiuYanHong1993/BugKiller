@@ -1,5 +1,5 @@
 // 会话存档：JSONL 追加写（一行一事件），支持列表与回放
-// 对照智作平台：dsh-session-persistence-jsonl（事实层），SQLite 投影留到 M2
+// 会话事实层（JSONL）
 
 import { appendFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -136,7 +136,7 @@ export class SessionStore {
     return kept.length;
   }
 
-  /** 分叉会话：复制全部事件到新会话（标题加「（分叉）」），返回新 id（对照智作分叉会话） */
+  /** 分叉会话：复制全部事件到新会话（标题加「（分叉）」），返回新 id（） */
   async fork(sessionId: string): Promise<string> {
     const events = await this.read(sessionId);
     if (events.length === 0) throw new Error(`会话不存在：${sessionId}`);

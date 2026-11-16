@@ -1,4 +1,4 @@
-// 模型预设目录：对照智作平台的 model-provider-catalog.v1.json
+// 模型预设目录：模型预设目录
 // 关键原则：目录里只存 apiKeyEnv（环境变量名），真实密钥运行时读取，绝不落盘。
 
 import { existsSync, readFileSync } from 'node:fs';

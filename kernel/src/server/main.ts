@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     };
   }
 
-  // Auto-model：主预设之外的全部预设作为 fallback（失败自动换模型，对照智作 auto-model）
+  // Auto-model：主预设之外的全部预设作为 fallback（失败自动换模型，）
   const catalog = loadCatalog(policyDir);
   const primaryId = preset.id;
   const fallbacks = Object.keys(catalog.presets)

@@ -1,16 +1,15 @@
-# agent-platform —— 我的 Agent 平台（模拟实现）
+# BugKiller —— 本地优先的 AI 智能体平台
 
-一个参照「智作·开发者平台」架构设计的自研 Agent 平台骨架。
-参考解析报告：[../智作平台软件实现全盘解析.md](../智作平台软件实现全盘解析.md)
+一个自研的本地优先 AI 智能体（Agent）平台。
 
 ## 架构总览
 
 ```
 apps/
   desktop/        Electron 壳（npm i electron 后启用；缺包时自动 Node 壳模式）
-  web/            会话 Web UI（对应智作的 React 插件槽 UI / Vue 壳层）
+  web/            会话 Web UI（业界主流的插件槽 UI 布局）
 client/           Windows 原生客户端（C# WinForms + WebView2，系统 csc 编译为 agent-platform.exe）
-kernel/           智能体内核（对应智作的 DSH + host 侧车）
+kernel/           智能体内核
   src/agent/      agent loop：消息循环、上下文管理、compaction、计划模式
   src/tools/      工具注册与执行：fs / bash / pwsh / web / subagent / todo / ask-user
   src/llm/        模型接入：providers、重试、失败自动换模型（auto-model）
@@ -20,12 +19,12 @@ kernel/           智能体内核（对应智作的 DSH + host 侧车）
 plugins/          插件（cordis 风格：manifest + patch 装配，参考 example-echo）
 workflow/         工作流运行时：DAG 引擎 + （可选）Docker 隔离执行器
 policy/           策略与安全：凭据零落盘、审批回执、审计日志、镜像/资产哈希锁
-data/             本地数据落盘（模拟 ~/.stratex：会话库、记忆、凭据引用）
+data/             本地数据落盘（会话库、记忆、凭据引用）
 docs/             架构文档与路线图
 scripts/          启动 / 打包 / 校验脚本
 ```
 
-## 设计原则（从智作平台学到的）
+## 设计原则
 
 1. **内核与壳分离**：内核是纯 Node 进程，壳（Electron/Web）只做展示与桥接，IPC 对称 request/response。
 2. **插件树装配**：一切能力都是插件，由一份 overlay.patch.yml 式清单装配，可关遥测、换品牌、裁剪工具。
@@ -43,7 +42,7 @@ npm run sessions           # 列出历史会话；npm run dev -- --open <id> 续
 # Web UI（M2）：内核起本地服务，浏览器打开打印的带令牌地址
 npm run serve              # 默认 MYAGENT_BASE_URL 指向本地 llama.cpp
 
-# 工作流（M3）：stdin JSON → stdout 事件 NDJSON（对照 stratex-flow）
+# 工作流（M3）：stdin JSON → stdout 事件 NDJSON（stdin JSON → NDJSON 事件契约）
 echo {"name":"demo","steps":[{"id":"a","prompt":"..."}]} | npm run flow
 
 # 桌面壳（M4）：侧车 + 凭据库 + 更新校验（Electron 缺包时自动 Node 壳模式）

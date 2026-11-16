@@ -1,5 +1,5 @@
 // 进程内 DAG 工作流引擎（M3）
-// 事件全部以 NDJSON 追加到 runDir/events.ndjson，对照智作 stratex-langgraph 的事件流做法
+// 事件全部以 NDJSON 追加到 runDir/events.ndjson，业界通行的事件流做法
 // 无依赖的步骤并行执行；上游失败 → 下游跳过（fail-fast）
 
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
@@ -15,7 +15,7 @@ export interface WorkflowEngineOptions {
   runDir: string;
   runner: StepRunner;
   log?: (line: string) => void;
-  /** 事件回调（CLI 用它把纯事件 NDJSON 写 stdout，对照 stratex-flow 契约） */
+  /** 事件回调（CLI 用它把纯事件 NDJSON 写 stdout，对照 工作流引擎 契约） */
   onEvent?: (ev: WorkflowEvent) => void;
 }
 

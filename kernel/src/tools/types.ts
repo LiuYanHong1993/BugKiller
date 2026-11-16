@@ -11,7 +11,7 @@ export interface ApprovalRequest {
 export type ApprovalGate = (req: ApprovalRequest) => Promise<boolean>;
 
 export interface ToolContext {
-  /** 工具只能访问该目录内部（对应智作平台的 workspace 约束） */
+  /** 工具只能访问该目录内部（workspace 约束） */
   workspaceRoot: string;
   approval: ApprovalGate;
   log: (line: string) => void;

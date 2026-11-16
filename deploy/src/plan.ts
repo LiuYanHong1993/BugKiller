@@ -1,5 +1,5 @@
 // 远端部署计划（M5，纯函数，可单测）
-// 对照智作 autonomous-linux 的事务式更新：release 目录 + 原子符号链接切换 + 一键回滚
+// 事务式更新（业界通行方案）：release 目录 + 原子符号链接切换 + 一键回滚
 // 本地打包 → scp 上传 → 远端 ln 切换 → 健康检查 → 失败自动回滚
 
 import { createHash } from 'node:crypto';

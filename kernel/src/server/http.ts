@@ -1,5 +1,5 @@
 // 内核 HTTP 服务：静态 UI + REST API + 令牌鉴权
-// 对照智作平台：dsh-host-webserver（仅回环、随机端口、令牌 URL 一次性打印）
+// 仅回环、随机端口、令牌 URL 一次性打印
 
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -448,7 +448,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
         return json(res, 200, { agents: loadAgents() });
       }
 
-      // ---- 上下文分析（对照智作「上下文」页：统计卡/组成/趋势；token 为字符估算口径） ----
+      // ---- 上下文分析（统计卡/组成/趋势；token 为字符估算口径） ----
       m = pathname.match(/^\/api\/context\/([A-Za-z0-9-]+)$/);
       if (m && req.method === 'GET') {
         const events = await deps.store.read(m[1]!).catch(() => []);
@@ -624,7 +624,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
     }
   }
 
-  /** 会话自动标题（对照智作）：标题仍是「新会话」时，首轮完成后用 LLM 生成 8 字内标题 */
+  /** 会话自动标题（：标题仍是「新会话」时，首轮完成后用 LLM 生成 8 字内标题 */
   async function autoTitle(sessionId: string, userText: string, reply: string): Promise<void> {
     try {
       const events = await deps.store.read(sessionId);

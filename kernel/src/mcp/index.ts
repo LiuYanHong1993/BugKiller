@@ -1,5 +1,5 @@
 // 按 policy/mcp-servers.json 挂载 MCP 服务器（stdio / streamable http）
-// 对照智作平台：memory-core.mjs 按开关热挂 mcp-client + server-memory
+// 按开关热挂 mcp-client + server-memory
 
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

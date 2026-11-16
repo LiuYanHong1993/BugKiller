@@ -1,6 +1,6 @@
 // Electron 主进程（M4）：真实桌面壳
-//  - 用 ELECTRON_RUN_AS_NODE 复用 Electron 二进制拉起内核侧车（对照智作 assistant-host）
-//  - BrowserWindow 加载内核 webserver 的带令牌地址（对照 stratex-app:// 的受控加载）
+//  - 用 ELECTRON_RUN_AS_NODE 复用 Electron 二进制拉起内核侧车
+//  - BrowserWindow 加载内核 webserver 的带令牌地址（对照 工作流引擎:// 的受控加载）
 //  - contextBridge 白名单：页面拿不到 ipcRenderer，只能调用下面暴露的三个方法
 // 运行：npm i electron 后 `npm run desktop`
 
@@ -97,7 +97,7 @@ function createWindow(url) {
     title: 'agent-platform',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true, // 与智作同款：隔离 + 白名单
+      contextIsolation: true, // 隔离 + 白名单
       nodeIntegration: false,
       sandbox: true,
     },

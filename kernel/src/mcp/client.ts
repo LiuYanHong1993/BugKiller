@@ -1,5 +1,5 @@
 // MCP stdio 客户端：JSON-RPC 2.0 over 新行分隔 NDJSON
-// 对照智作平台：dsh-mcp-client 的最小子集（initialize / tools/list / tools/call）
+// MCP 客户端（initialize / tools/list / tools/call）
 
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
