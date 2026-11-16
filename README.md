@@ -64,6 +64,18 @@ npm run package             # 产物：dist/agent-platform-<version>.zip
 - 路线图：[docs/roadmap.md](docs/roadmap.md)，M1（CLI 内核）与 M2（Web UI + MCP + 审批卡）已完成。
 - 测试：`npm test`（node:test，零依赖）。
 
+
+## 参考与致谢
+
+本项目的部分设计参考了以下开源项目与协议，在此致谢：
+
+- [Model Context Protocol (MCP)](https://github.com/modelcontextprotocol) —— 工具生态协议：stdio/HTTP 双传输、tools/list、tools/call 的客户端实现，以及内置记忆服务（server-memory）的行为参考
+- [Cordis / Koishi](https://github.com/koishijs/koishi) —— 插件生命周期模型（apply / ctx.on / dispose）的能力裁剪版
+- [LangGraph](https://github.com/langchain-ai/langgraph) —— 工作流引擎的 DAG 节点、依赖拓扑与事件流设计思路
+- [electron-updater](https://github.com/electron-userland/electron-builder) —— 「哈希清单 + 签名双校验」的更新安全模型
+
+同时借鉴了多家业界 Agent 平台在会话、技能市场、知识库等形态上的公开交互实践。
+
 ## 目录约定
 
 - 每个 `src/*` 子目录一个 `index.ts` 入口 + 单元测试放同目录 `*.test.ts`。
