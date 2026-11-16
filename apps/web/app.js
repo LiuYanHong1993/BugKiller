@@ -1,0 +1,2433 @@
+﻿// agent-platform Web UI v3 —— 对齐智作·开发者平台布局
+// 左对齐活动流 / 思考折叠行 / 紧凑工具行 / 对话-轨迹-上下文 Tab / 状态栏 / 权限徽章
+// 零依赖；API 层与 M2 一致
+
+window.addEventListener('error', () => setConn('off'));
+window.addEventListener('unhandledrejection', () => setConn('off'));
+
+/* ---------------- 令牌 / API ---------------- */
+
+function getToken() {
+  try { return sessionStorage.getItem('myagentToken'); } catch { return null; }
+}
+function setTokenLocal(t) {
+  try { sessionStorage.setItem('myagentToken', t); } catch { /* ignore */ }
+}
+const token = new URLSearchParams(location.search).get('token') || getToken() || '';
+if (token) setTokenLocal(token);
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+      ...(opts.headers || {}),
+    },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+/* ---------------- 状态 ---------------- */
+
+const state = {
+  sessionId: null,
+  sessionTitle: '',
+  tab: 'dialog',
+  lastSeq: 0,
+  events: 0,
+  pendingUserText: null,
+  toolRows: new Map(),   // callId -> { row, callTs, outPre }
+  approvalCards: new Map(),
+  shownApprovals: new Set(),
+  sending: false,
+  abortCtl: null,
+  hasEverScrolled: false,
+  stats: { rounds: 0, steps: 0, tokens: 0 },
+  sessionTotal: 0,
+  serverState: null,
+  groups: {},            // sessionId -> 分组名（localStorage 持久化）
+  collapsedGroups: new Set(),
+  projFilter: '',        // 空 = 全部
+  searchOpen: false,
+  showArchived: false,   // 侧栏是否显示已归档会话
+  view: 'chat',          // chat | projects | office | agents | settings | feedback
+  officeTab: 'experts',  // 办公套件子 Tab
+  officeKw: '',          // 办公套件搜索词
+  pendingFiles: [],      // 待发送附件 {kind:'image'|'text', name, dataUrl?, text?, mime?}
+  pinned: new Set(),     // 置顶会话（localStorage）
+  editing: null,         // {seq} 编辑重发中的截断点
+};
+
+const $ = (id) => document.getElementById(id);
+
+/* ---------------- markdown（零依赖） ---------------- */
+
+function inlineMd(s) {
+  return s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+
+function md(text) {
+  const lines = String(text ?? '').replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  let para = [], fence = null, list = null, quote = null;
+  let table = null; // { header: string[], rows: string[][] }
+
+  const flushPara = () => { if (para.length) { out.push(`<p>${inlineMd(para.join('<br>'))}</p>`); para = []; } };
+  const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  const flushQuote = () => { if (quote) { out.push(`<blockquote>${inlineMd(quote.join('<br>'))}</blockquote>`); quote = null; } };
+  const flushTable = () => {
+    if (table) {
+      const esc1 = (c) => inlineMd(esc(c.trim()));
+      let html = '<table class="tbl"><thead><tr>';
+      for (const c of table.header) html += `<th>${esc1(c)}</th>`;
+      html += '</tr></thead><tbody>';
+      for (const r of table.rows) {
+        html += '<tr>';
+        for (const c of r) html += `<td>${esc1(c)}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+      out.push(html);
+      table = null;
+    }
+  };
+  const flushAll = () => { flushPara(); flushList(); flushQuote(); flushTable(); };
+
+  const isRow = (l) => /^\s*\|.*\|\s*$/.test(l) && l.includes('|');
+  const isSep = (l) => /^\s*\|?\s*:?-{2,}[\s:|-]*\|?\s*$/.test(l) && l.includes('-') && l.includes('|') !== undefined && /-/.test(l) && l.split('|').length >= 2;
+  const cells = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|');
+
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li].replace(/\s+$/, '');
+    if (fence !== null) {
+      if (/^```/.test(line)) { out.push(`<pre><code>${fence.join('\n')}</code></pre>`); fence = null; }
+      else fence.push(line);
+      continue;
+    }
+    if (/^```/.test(line)) { flushAll(); fence = []; continue; }
+    if (!line.trim()) { flushAll(); continue; }
+
+    // GFM 表格：当前行是 |…| 且下一行是 |---|---| 分隔
+    if (isRow(line) && li + 1 < lines.length && /^\s*\|?[\s:|-]+\|\s*$/.test(lines[li + 1]) && lines[li + 1].includes('-')) {
+      flushAll();
+      table = { header: cells(line), rows: [] };
+      li += 1; // 跳过分隔行
+      continue;
+    }
+    if (table && isRow(line)) { table.rows.push(cells(line)); continue; }
+    flushTable();
+
+    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    if (h) { flushAll(); const n = h[1].length; out.push(`<h${n}>${inlineMd(esc(h[2]))}</h${n}>`); continue; }
+    if (/^(---+|\*\*\*+)$/.test(line.trim())) { flushAll(); out.push('<hr>'); continue; }
+    const ul = line.match(/^\s*[-*•]\s+(.*)$/);
+    if (ul) { flushPara(); flushQuote(); if (list !== 'ul') { flushList(); out.push('<ul>'); list = 'ul'; } out.push(`<li>${inlineMd(esc(ul[1]))}</li>`); continue; }
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (ol) { flushPara(); flushQuote(); if (list !== 'ol') { flushList(); out.push('<ol>'); list = 'ol'; } out.push(`<li>${inlineMd(esc(ol[1]))}</li>`); continue; }
+    const bq = line.match(/^>\s?(.*)$/);
+    if (bq) { flushPara(); flushList(); if (!quote) quote = []; quote.push(esc(bq[1])); continue; }
+    flushList(); flushQuote();
+    para.push(esc(line));
+  }
+  if (fence !== null) out.push(`<pre><code>${esc(fence.join('\n'))}</code></pre>`);
+  flushAll();
+  return out.join('');
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+}
+function cssEsc(s) {
+  return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/[^a-zA-Z0-9_-]/g, '');
+}
+function truncate(s, n) {
+  s = String(s ?? '');
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+function relTime(id) {
+  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-/.exec(id);
+  if (!m) return '';
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return Math.floor(diff / 60) + ' 分钟';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' 小时';
+  if (diff < 172800) return '1 天';
+  return Math.floor(diff / 86400) + ' 天';
+}
+
+/* ---------------- 工具行文案 ---------------- */
+
+const TOOL_VERBS = {
+  read_file: '读取',
+  write_file: '写入',
+  echo: '回显',
+  run_command: '执行命令',
+  web_fetch: '抓取网页',
+  todo_write: '更新计划',
+  todo_read: '查看计划',
+  'mcp__memory__memory_save': '记忆',
+  'mcp__memory__memory_recall': '回忆',
+};
+function toolVerb(name) {
+  if (TOOL_VERBS[name]) return TOOL_VERBS[name];
+  if (name.startsWith('mcp__')) return name.split('__').slice(2).join('·');
+  return '调用 ' + name;
+}
+function toolTarget(name, argsJson) {
+  try {
+    const a = JSON.parse(argsJson || '{}');
+    if (name === 'todo_write') return `${(a.items || []).length} 项任务`;
+    if (name === 'run_command') return truncate(a.command ?? '', 60);
+    return a.path ?? a.text ?? a.command ?? a.query ?? a.content ?? '';
+  } catch {
+    return String(argsJson ?? '');
+  }
+}
+function pretty(json) {
+  try { return JSON.stringify(JSON.parse(json || '{}'), null, 2); } catch { return String(json ?? ''); }
+}
+
+/* ---------------- 滚动 ---------------- */
+
+function nearBottom() {
+  const el = $('streamScroll');
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+}
+function scrollBottom(force) {
+  const el = $('streamScroll');
+  if (force || nearBottom() || !state.hasEverScrolled) {
+    el.scrollTop = el.scrollHeight;
+    state.hasEverScrolled = true;
+  }
+}
+$('streamScroll') && $('streamScroll').addEventListener('scroll', () => {
+  if (!nearBottom()) state.hasEverScrolled = true;
+});
+
+/* ---------------- 顶栏 / 状态 ---------------- */
+
+function setSessStatus(running, text) {
+  const el = $('sessStatus');
+  const tx = $('sessStatusTx');
+  if (!el || !tx) return; // 顶栏已净化（无状态元素）
+  el.className = running ? 'running' : '';
+  tx.textContent = text ?? '';
+}
+function updateStatusBar() {
+  $('sbRounds').textContent = state.stats.rounds;
+  $('sbSteps').textContent = state.stats.steps;
+  $('sbTokens').textContent = state.stats.tokens > 0 ? state.stats.tokens.toLocaleString() : 0;
+  $('sbSessions').textContent = state.sessionTotal;
+  updatePlan();
+}
+
+async function loadState() {
+  try {
+    const s = await api('/api/state');
+    state.serverState = s;
+    $('modelSel').innerHTML = `${esc(s.model)} <span>▾</span>`;
+    const pb = $('permBadge');
+    if (s.autoApprove) { pb.textContent = '⚠ 完全权限'; pb.className = 'cbtn full'; pb.title = '无人值守：写操作自动放行'; }
+    else if (s.mode === 'read-only') { pb.textContent = '只读'; pb.className = 'cbtn'; pb.title = '内核工作区只读'; }
+    else { pb.textContent = '工作区权限'; pb.className = 'cbtn ws'; pb.title = '写操作需审批，仅限工作区内'; }
+    const s0 = state.serverState || {};
+    if (s0.workspaceRoot) {
+      const base = String(s0.workspaceRoot).split(/[\\/]/).pop();
+      const chip = $('wsChip');
+      if (chip) chip.textContent = `📁 ${base} · 已固定`;
+    }
+    updatePlan();
+    const meta = $('meta');
+    meta.innerHTML =
+      `模型 <b>${esc(s.model)}</b><br>${esc(s.baseUrl)}<br>权限 ${esc(s.mode)}${s.autoApprove ? '（无人值守）' : ''}<br>工作区 ${esc(s.workspaceRoot)}<br>MCP ${esc(s.mcp)}`;
+  } catch {
+    setConn('off');
+  }
+}
+
+function updatePlan() {
+  const el = $('planTx');
+  if (state.sending) el.textContent = `任务进行中 · ${state.stats.steps} 步 · ${state.stats.rounds} 轮`;
+  else el.textContent = '就绪 · 等待任务';
+}
+function setConn(on) {
+  const sb = $('sbInfo');
+  if (sb) sb.textContent = on === false ? '内核未连接' : 'BugKiller v0.1 · 本地内核';
+}
+
+/** JS → C# 标题栏通道（WebView2 WebMessage；浏览器环境静默） */
+function postToHost(msg) {
+  try { window.chrome && window.chrome.webview && window.chrome.webview.postMessage(JSON.stringify(msg)); } catch { /* ignore */ }
+}
+function updateTitle(t) {
+  $('sessTitle').textContent = t;
+  postToHost({ type: 'session-title', title: t });
+}
+
+/* ---------------- 会话分组（对照智作侧栏：项目分组 + 计数 + 展开其余） ---------------- */
+
+const GROUP_CAP = 5;
+
+function loadGroups() {
+  try { return JSON.parse(localStorage.getItem('myagentGroups') || '{}') || {}; } catch { return {}; }
+}
+function saveGroups() {
+  try { localStorage.setItem('myagentGroups', JSON.stringify(state.groups)); } catch { /* ignore */ }
+}
+function loadSet(key) {
+  try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')); } catch { return new Set(); }
+}
+function saveSet(key, set) {
+  try { localStorage.setItem(key, JSON.stringify([...set])); } catch { /* ignore */ }
+}
+
+/** 置顶/取消置顶会话 */
+function togglePin(sessionId) {
+  if (state.pinned.has(sessionId)) state.pinned.delete(sessionId);
+  else state.pinned.add(sessionId);
+  saveSet('myagentPinned', state.pinned);
+  refreshSessions();
+}
+
+function cancelEditing() {
+  state.editing = null;
+  const b = $('editBanner');
+  if (b) b.style.display = 'none';
+}
+
+function renderGroups(sessions, searchHits) {
+  const list = $('sessionList');
+  const kw = state.searchOpen ? ($('sessionSearch').value || '').trim().toLowerCase() : '';
+  const visible = sessions.filter((s) => s.archived === state.showArchived);
+  const groups = new Map(); // 分组名 -> sessions[]
+  for (const s of visible) {
+    const g = state.pinned.has(s.id) ? '📌 置顶' : state.groups[s.id] || '未归属项目';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(s);
+  }
+  // 置顶组最前；未归属项目最后；其余按名称
+  const order = (g) => (g === '📌 置顶' ? 0 : g === '未归属项目' ? 2 : 1);
+  const names = [...groups.keys()].sort((a, b) => order(a) - order(b) || (a < b ? -1 : 1));
+
+  list.innerHTML = '';
+  let shown = 0;
+  for (const g of names) {
+    if (state.projFilter && state.projFilter !== g) continue;
+    const all = groups.get(g);
+    const matched = kw ? all.filter((s) => `${s.title || ''} ${s.id}`.toLowerCase().includes(kw)) : all;
+    if (kw && matched.length === 0) continue;
+    shown += 1;
+    renderGroup(list, g, matched, kw);
+  }
+
+  // 全文命中（SQLite 投影）：标题没匹配但正文命中的会话，单独一组列出
+  const hitById = new Map();
+  for (const h of searchHits || []) {
+    if (!hitById.has(h.sessionId)) hitById.set(h.sessionId, h);
+  }
+  const contentHits = [...hitById.values()].filter((h) => {
+    const s = sessions.find((x) => x.id === h.sessionId);
+    return s && kw && !`${s.title || ''} ${s.id}`.toLowerCase().includes(kw);
+  });
+  if (contentHits.length) {
+    const g = document.createElement('div');
+    g.className = 'group';
+    g.innerHTML = `<button type="button" class="group-head"><span>📄 正文命中</span><span class="cnt">${contentHits.length}</span></button><div class="group-body"></div>`;
+    const body = g.querySelector('.group-body');
+    for (const h of contentHits) {
+      const s = sessions.find((x) => x.id === h.sessionId);
+      body.appendChild(sessionItem({ ...s, title: `${s.title || s.id} · ${h.snippet.slice(0, 24)}…` }));
+    }
+    list.appendChild(g);
+  }
+
+  if (shown === 0 && !contentHits.length) {
+    list.innerHTML = `<div style="color:var(--muted);font-size:11.5px;padding:8px">${state.sessionTotal === 0 ? '暂无会话，点上面「新建会话」' : '无匹配会话'}</div>`;
+  } else {
+    bindListDropTarget(list);
+  }
+}
+
+/** 会话列表 + （搜索时）全文命中一起刷 */
+async function refreshSessions() {
+  try {
+    const { sessions } = await api('/api/sessions');
+    state.sessionTotal = sessions.filter((s) => !s.archived).length;
+    updateStatusBar();
+    let hits = [];
+    const kw = state.searchOpen ? ($('sessionSearch').value || '').trim() : '';
+    if (kw) {
+      try { hits = (await api(`/api/search?q=${encodeURIComponent(kw)}`)).hits || []; } catch { hits = []; }
+    }
+    renderGroups(sessions.filter((s) => s.archived === state.showArchived), hits);
+    return sessions;
+  } catch {
+    return [];
+  }
+}
+
+function renderGroup(list, name, items, kw) {
+  const collapsed = state.collapsedGroups.has(name);
+  const group = document.createElement('div');
+  group.className = 'group' + (collapsed ? ' collapsed' : '');
+
+  const head = document.createElement('button');
+  head.type = 'button';
+  head.className = 'group-head';
+  head.innerHTML = `<span class="chev">▾</span><span>${esc(name)}</span><span class="cnt">${items.length}</span>`;
+  head.onclick = () => {
+    if (state.collapsedGroups.has(name)) state.collapsedGroups.delete(name);
+    else state.collapsedGroups.add(name);
+    saveSet('myagentGroupsCollapsed', state.collapsedGroups);
+    group.classList.toggle('collapsed');
+  };
+  // 拖拽归组：会话拖到分组头上即移入该组
+  head.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    head.classList.add('drop-hint');
+  });
+  head.addEventListener('dragleave', () => head.classList.remove('drop-hint'));
+  head.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // 别冒泡到列表空白处（会覆盖归组动作）
+    head.classList.remove('drop-hint');
+    const sid = e.dataTransfer.getData('text/session-id');
+    if (sid) assignGroup(sid, name);
+  });
+  group.appendChild(head);
+
+  const body = document.createElement('div');
+  body.className = 'group-body';
+  const cap = kw ? items.length : GROUP_CAP;
+  for (let i = 0; i < Math.min(cap, items.length); i++) {
+    body.appendChild(sessionItem(items[i]));
+  }
+  if (items.length > cap) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'group-more';
+    more.textContent = `展开其余 ${items.length - cap} 个会话`;
+    more.onclick = () => {
+      for (let i = cap; i < items.length; i++) body.insertBefore(sessionItem(items[i]), more);
+      more.remove();
+    };
+    body.appendChild(more);
+  }
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'color:var(--muted);font-size:11px;padding:4px 9px';
+    empty.textContent = '（空）';
+    body.appendChild(empty);
+  }
+  group.appendChild(body);
+  list.appendChild(group);
+}
+
+/* 拖到列表空白处 = 移出分组（归到未归属项目） */
+function bindListDropTarget(list) {
+  list.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer.types.includes('text/session-id')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    list.classList.add('drop-hint');
+  });
+  list.addEventListener('dragleave', (e) => {
+    if (e.target === list) list.classList.remove('drop-hint');
+  });
+  list.addEventListener('drop', (e) => {
+    list.classList.remove('drop-hint');
+    const sid = e.dataTransfer.getData('text/session-id');
+    if (sid) {
+      e.preventDefault();
+      assignGroup(sid, ''); // 未归属项目
+    }
+  });
+}
+
+function sessionItem(s) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'session-item' + (s.id === state.sessionId ? ' active' : '');
+  btn.draggable = !s.archived; // 已归档视图不拖拽
+  btn.innerHTML =
+    `<div class="row1"><span class="dot"></span>` +
+    `<span class="t">${esc(s.title || s.id)}</span>` +
+    `<span class="quick">` +
+    `<button type="button" class="q" data-pin title="${state.pinned.has(s.id) ? '取消置顶' : '置顶会话'}">📌</button>` +
+    `<button type="button" class="q danger" data-del title="删除会话">🗑</button></span>` +
+    `<span class="time">${esc(relTime(s.id))}</span></div>`;
+  btn.dragstart = null;
+  btn.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/session-id', s.id);
+    e.dataTransfer.effectAllowed = 'move';
+    btn.classList.add('dragging');
+  });
+  btn.addEventListener('dragend', () => btn.classList.remove('dragging'));
+  btn.onclick = (e) => {
+    if (e.target.closest('[data-pin]')) { togglePin(s.id); return; }
+    if (e.target.closest('[data-del]')) {
+      if (!confirm(`删除会话「${s.title || s.id}」？历史不可恢复。`)) return;
+      api(`/api/sessions/${s.id}`, { method: 'DELETE' }).then(() => {
+        if (state.sessionId === s.id) { state.sessionId = null; showWelcomeStandalone(); }
+        refreshSessions();
+      }).catch((err) => alert('删除失败：' + err.message));
+      return;
+    }
+    openSession(s.id, s.title);
+  };
+  btn.oncontextmenu = (e) => {
+    e.preventDefault();
+    openSessionMenu(e, s);
+  };
+  if (s.id === state.sessionId) state.sessionTitle = s.title || s.id;
+  return btn;
+}
+
+/* ---------------- 会话右键菜单（归组） ---------------- */
+
+function closeSessionMenu() {
+  const m = $('ctxMenu');
+  if (m) m.remove();
+}
+
+function openSessionMenu(e, s) {
+  closeSessionMenu();
+  const menu = document.createElement('div');
+  menu.id = 'ctxMenu';
+  const current = state.groups[s.id] || '未归属项目';
+  const groups = [...new Set(['未归属项目', ...Object.values(state.groups)])].filter((g) => g !== current);
+
+  const title = document.createElement('div');
+  title.style.cssText = 'padding:6px 10px;color:var(--muted);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px';
+  title.textContent = truncate(s.title || s.id, 24) + ' · ' + current;
+  menu.appendChild(title);
+  menu.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
+
+  const mk = (label, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.onclick = () => { closeSessionMenu(); fn(); };
+    menu.appendChild(b);
+  };
+  for (const g of groups) mk(`移动到「${g}」`, () => { assignGroup(s.id, g); });
+  mk('新建分组并移入…', () => {
+    const name = prompt('新分组名称：', '');
+    if (name && name.trim()) assignGroup(s.id, name.trim());
+  });
+  if (current !== '未归属项目') mk('移出分组', () => { assignGroup(s.id, ''); });
+  mk(state.pinned.has(s.id) ? '取消置顶' : '📌 置顶会话', () => togglePin(s.id));
+  mk('✎ 重命名', async () => {
+    const name = prompt('重命名会话：', s.title || s.id);
+    if (!name || !name.trim() || name.trim() === (s.title || s.id)) return;
+    try {
+      await api(`/api/sessions/${s.id}/rename`, { method: 'POST', body: JSON.stringify({ title: name.trim() }) });
+      if (state.sessionId === s.id) { state.sessionTitle = name.trim(); updateTitle(name.trim()); }
+      refreshSessions();
+    } catch (e) {
+      appendNote(`重命名失败：${e.message}`, true);
+    }
+  });
+  mk('⑂ 分叉会话', async () => {
+    try {
+      const r = await api(`/api/sessions/${s.id}/fork`, { method: 'POST' });
+      await refreshSessions();
+      await openSession(r.id, `${s.title || s.id}（分叉）`);
+    } catch (e) {
+      appendNote(`分叉失败：${e.message}`, true);
+    }
+  });
+  mk(s.archived ? '📂 取消归档' : '🗂 归档会话', async () => {
+    try {
+      await api(`/api/sessions/${s.id}/archive`, { method: 'POST', body: JSON.stringify({ archived: !s.archived }) });
+      if (s.archived === false && state.sessionId === s.id) { state.sessionId = null; showWelcomeStandalone(); }
+      refreshSessions();
+    } catch (e) {
+      appendNote(`归档失败：${e.message}`, true);
+    }
+  });
+  menu.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
+  mk('删除会话…', async () => {
+    if (!confirm(`删除会话「${truncate(s.title || s.id, 20)}」？历史不可恢复。`)) return;
+    await api(`/api/sessions/${s.id}`, { method: 'DELETE' }).catch((err) => appendNote(`删除失败：${err.message}`, true));
+    if (state.sessionId === s.id) { state.sessionId = null; showWelcomeStandalone(); }
+    refreshSessions();
+  });
+
+  menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
+  menu.style.top = Math.min(e.clientY, window.innerHeight - 220) + 'px';
+  menu.style.display = 'block';
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', closeSessionMenu, { once: true }), 0);
+}
+
+function assignGroup(sessionId, project) {
+  if (project) state.groups[sessionId] = project;
+  else delete state.groups[sessionId];
+  saveGroups();
+  refreshSessions();
+}
+
+/* ---------------- 主题色 ---------------- */
+
+const THEME_COLORS = [
+  { name: '蓝（默认）', value: '#4f8ef7' },
+  { name: '紫', value: '#8b6bf7' },
+  { name: '青', value: '#2bbfa3' },
+  { name: '绿', value: '#3fbf6f' },
+  { name: '橙', value: '#e8913d' },
+  { name: '玫红', value: '#e05b7f' },
+];
+
+function applyTheme(color) {
+  if (!color) return;
+  document.documentElement.style.setProperty('--accent', color);
+}
+
+function saveTheme(color) {
+  try { localStorage.setItem('myagentTheme', color); } catch { /* ignore */ }
+}
+
+function loadTheme() {
+  try { return localStorage.getItem('myagentTheme') || THEME_COLORS[0].value; } catch { return THEME_COLORS[0].value; }
+}
+
+/* ---------------- 主区视图系统：chat / projects / office / agents / settings / feedback ---------------- */
+
+function switchView(view) {
+  state.view = view;
+  const isChat = view === 'chat';
+  $('tabs').style.display = isChat ? 'flex' : 'none';
+  $('composerWrap').style.display = isChat ? 'block' : 'none';
+  for (const b of document.querySelectorAll('.menu-item')) b.classList.toggle('active', b.id === (isChat ? 'newSession' : viewNavId(view)));
+  $('sessTitle').textContent = isChat ? (state.sessionTitle || 'BugKiller') : VIEW_TITLES[view];
+  if (!isChat) {
+    setSessStatus(false, '');
+    $('stream').innerHTML = '';
+    if (view === 'projects') renderProjectsPage();
+    else if (view === 'office') renderOfficePage();
+    else if (view === 'agents') renderAgentsPage();
+    else if (view === 'settings') renderSettingsPage();
+    else if (view === 'feedback') renderFeedbackPage();
+  } else {
+    reloadDialog();
+  }
+}
+
+const VIEW_TITLES = { chat: 'BugKiller', projects: '项目 / 产品管理', office: '办公套件', agents: '云智能体', settings: '设置', feedback: '问题反馈' };
+
+function viewNavId(view) {
+  return { projects: 'navProjects', office: 'navOffice', agents: 'navAgents' }[view] ?? '';
+}
+
+function pageCard(title, sub, actionsHtml) {
+  const c = document.createElement('div');
+  c.className = 'page-card';
+  c.innerHTML =
+    `<div class="pc-head"><div><div class="pc-t">${esc(title)}</div>${sub ? `<div class="pc-s">${esc(sub)}</div>` : ''}</div>` +
+    `<div class="pc-actions">${actionsHtml || ''}</div></div><div class="pc-body"></div>`;
+  return c;
+}
+
+/* ---- 项目 / 产品管理：分组 CRUD + 组内会话 + 删除会话 ---- */
+
+async function renderProjectsPage() {
+  const stream = $('stream');
+  stream.innerHTML = '';
+  const { sessions } = await api('/api/sessions').catch(() => ({ sessions: [] }));
+
+  const createCard = pageCard('新建分组', '分组用于侧栏的会话归类（本地持久化）',
+    '<input id="npName" placeholder="分组名称" />' +
+    '<button class="pbtn accent" id="npCreate">创建</button>');
+  stream.appendChild(createCard);
+  createCard.querySelector('#npCreate').onclick = () => {
+    const name = createCard.querySelector('#npName').value.trim();
+    if (!name) return;
+    state.groups[`__group__${name}`] = name; // 仅标记存在（空分组）
+    saveGroups();
+    renderProjectsPage();
+  };
+
+  const groups = new Map();
+  for (const s of sessions) {
+    const g = state.groups[s.id] || '未归属项目';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(s);
+  }
+  for (const [name, existsTag] of Object.entries(state.groups)) {
+    if (name.startsWith('__group__') && existsTag && !groups.has(existsTag)) groups.set(existsTag, []);
+  }
+  const names = [...groups.keys()].sort((a, b) => (a === '未归属项目' ? 1 : b === '未归属项目' ? -1 : a < b ? -1 : 1));
+
+  for (const g of names) {
+    const items = groups.get(g) || [];
+    const actions =
+      (g !== '未归属项目'
+        ? `<button class="pbtn" data-rename="${esc(g)}">重命名</button><button class="pbtn danger" data-delgroup="${esc(g)}">删除分组</button>`
+        : '');
+    const card = pageCard(`${g}`, `${items.length} 个会话`, actions);
+    const body = card.querySelector('.pc-body');
+    for (const s of items) {
+      const row = document.createElement('div');
+      row.className = 'prow';
+      row.innerHTML =
+        `<span class="prow-t">${esc(s.title || s.id)}</span>` +
+        `<span class="prow-time">${esc(relTime(s.id))} · ${s.events} 事件</span>` +
+        `<span class="prow-ops"><button class="pbtn" data-open="${s.id}" data-t="${esc(s.title || '')}">打开</button>` +
+        `<button class="pbtn danger" data-delsess="${s.id}">删除会话</button></span>`;
+      body.appendChild(row);
+    }
+    if (items.length === 0) body.innerHTML = '<div class="pc-empty">（空分组）</div>';
+    stream.appendChild(card);
+    if (g !== '未归属项目') {
+      card.querySelector('[data-rename]').onclick = () => {
+        const nn = prompt('重命名分组：', g);
+        if (!nn || !nn.trim()) return;
+        for (const [sid, grp] of Object.entries(state.groups)) if (grp === g) state.groups[sid] = nn.trim();
+        if (state.groups[`__group__${g}`]) { delete state.groups[`__group__${g}`]; state.groups[`__group__${nn.trim()}`] = nn.trim(); }
+        saveGroups();
+        renderProjectsPage();
+      };
+      card.querySelector('[data-delgroup]').onclick = () => {
+        if (!confirm(`删除分组「${g}」？组内会话将移到未归属项目。`)) return;
+        for (const [sid, grp] of Object.entries(state.groups)) if (grp === g) delete state.groups[sid];
+        delete state.groups[`__group__${g}`];
+        saveGroups();
+        renderProjectsPage();
+      };
+    }
+    for (const b of card.querySelectorAll('[data-open]')) {
+      b.onclick = () => { switchView('chat'); openSession(b.dataset.open, b.dataset.t); };
+    }
+    for (const b of card.querySelectorAll('[data-delsess]')) {
+      b.onclick = async () => {
+        if (!confirm('删除该会话？历史不可恢复。')) return;
+        await api(`/api/sessions/${b.dataset.delsess}`, { method: 'DELETE' }).catch((e) => appendNote(`删除失败：${e.message}`, true));
+        if (state.sessionId === b.dataset.delsess) { state.sessionId = null; }
+        renderProjectsPage();
+        refreshSessions();
+      };
+    }
+  }
+  updateStatusBar();
+}
+
+/* ---- 办公套件（对照智作：页头 + 四 Tab + 已安装/公开分区 + 专家卡双列） ---- */
+
+function loadCustomAgents() {
+  try { return JSON.parse(localStorage.getItem('myagentCustomAgents') || '[]') || []; } catch { return []; }
+}
+function saveCustomAgents(list) {
+  try { localStorage.setItem('myagentCustomAgents', JSON.stringify(list)); } catch { /* ignore */ }
+}
+function loadAgentUse() {
+  try { return JSON.parse(localStorage.getItem('myagentAgentUse') || '{}') || {}; } catch { return {}; }
+}
+function bumpAgentUse(id) {
+  const u = loadAgentUse();
+  u[id] = (u[id] || 0) + 1;
+  try { localStorage.setItem('myagentAgentUse', JSON.stringify(u)); } catch { /* ignore */ }
+}
+
+const OFFICE_TABS = [
+  ['experts', '🧑‍🏫 专家'],
+  ['skills', '⚙ 技能'],
+  ['connectors', '🔌 连接器'],
+  ['knowledge', '📚 知识库'],
+];
+
+function toolDesc(name) {
+  const known = {
+    read_file: '读取工作区内的文本文件（UTF-8）',
+    write_file: '创建或覆盖工作区文件（审批门 + 沙箱镜像 + 行级 diff）',
+    run_command: '在工作区内执行 PowerShell 命令（审批门 + 超时 + 输出截断）',
+    web_fetch: '抓取网页并转为纯文本（SSRF 防护）',
+    todo_write: '写当前会话的任务计划（会话计划卡联动）',
+    todo_read: '读取当前会话的任务计划',
+    echo: '回显一段文本',
+    'mcp__memory__memory_save': '保存记忆到 MCP memory 服务',
+    'mcp__memory__memory_recall': '从 MCP memory 服务检索记忆',
+  };
+  return known[name] ?? 'MCP 提供的工具';
+}
+
+async function renderOfficePage() {
+  const stream = $('stream');
+  stream.innerHTML = '';
+  const office = state.officeTab || 'experts';
+
+  // ---- 页头：返回 + 大标题 + 副标题 + 创建/导入 ----
+  const head = document.createElement('div');
+  head.className = 'office-head';
+  head.innerHTML =
+    `<div class="office-back"><button class="tb-btn" id="officeBack" title="返回">←</button><span class="office-crumb">开发/办公套件</span></div>` +
+    `<div class="office-actions"><button class="pbtn accent" id="ofCreate">＋ 创建专家</button><button class="pbtn" id="ofImport">导入专家</button></div>` +
+    `<h1 class="office-title">开发/办公套件</h1>` +
+    `<div class="office-sub">汇集办公与开发所需的专家、技能、连接器与知识库。</div>`;
+  stream.appendChild(head);
+  $('officeBack').onclick = () => switchView('chat');
+
+  // ---- Tab 行 + 分类筛选 ----
+  const tabRow = document.createElement('div');
+  tabRow.className = 'office-tabs';
+  tabRow.innerHTML =
+    OFFICE_TABS.map(([id, nm]) => `<button type="button" class="otab ${office === id ? 'active' : ''}" data-tab="${id}">${nm}</button>`).join('') +
+    `<span class="spacer"></span><span class="allcat">全部分类 ▾</span>`;
+  stream.appendChild(tabRow);
+  for (const b of tabRow.querySelectorAll('.otab')) {
+    b.onclick = () => { state.officeTab = b.dataset.tab; renderOfficePage(); };
+  }
+
+  // ---- 搜索行（专家/技能 Tab 用） ----
+  const searchRow = document.createElement('div');
+  searchRow.className = 'office-search';
+  searchRow.innerHTML = `<input id="officeSearch" placeholder="${office === 'experts' ? '搜索专家名称或描述' : '搜索技能名称或描述'}" />`;
+  stream.appendChild(searchRow);
+  const kwEl = searchRow.querySelector('#officeSearch');
+  kwEl.value = state.officeKw || '';
+  kwEl.addEventListener('input', () => { state.officeKw = kwEl.value.trim().toLowerCase(); renderOfficePage(); });
+  kwEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); renderOfficePage(); }
+  });
+
+  const listWrap = document.createElement('div');
+  listWrap.id = 'officeList';
+  stream.appendChild(listWrap);
+
+  if (office === 'experts') await renderOfficeExperts(listWrap);
+  else if (office === 'skills') await renderOfficeSkills(listWrap);
+  else if (office === 'connectors') renderOfficeConnectors(listWrap);
+  else renderOfficeKnowledge(listWrap);
+
+  // ---- 创建 / 导入 表单 ----
+  $('ofCreate').onclick = () => renderAgentForm();
+  $('ofImport').onclick = () => {
+    const json = prompt('粘贴专家定义 JSON（name / desc / icon / opening）：');
+    if (!json) return;
+    try {
+      const a = JSON.parse(json);
+      if (!a.name) throw new Error('缺少 name');
+      const list = loadCustomAgents();
+      list.push({ id: 'custom-' + Date.now(), name: String(a.name), desc: String(a.desc ?? ''), icon: String(a.icon ?? '🤖'), opening: String(a.opening ?? '') });
+      saveCustomAgents(list);
+      renderOfficePage();
+    } catch (e) {
+      alert('导入失败：' + e.message);
+    }
+  };
+}
+
+function renderAgentForm() {
+  const stream = $('stream');
+  const old = $('agentFormCard');
+  if (old) { old.remove(); return; }
+  const card = pageCard('创建专家', '保存后出现在专家列表，可在任意会话召唤',
+    '<button class="pbtn accent" id="afSave">保存专家</button>');
+  card.querySelector('.pc-body').innerHTML =
+    `<div class="form-row"><label>名称</label><input id="afName" placeholder="如：周报助手" /></div>` +
+    `<div class="form-row"><label>图标</label><input id="afIcon" placeholder="📊（emoji）" /></div>` +
+    `<div class="form-row"><label>一句话描述</label><input id="afDesc" placeholder="这个专家擅长什么" /></div>` +
+    `<div class="form-row"><label>开场指令</label><textarea id="afOpen" placeholder="召唤后自动发送给模型的角色指令…"></textarea></div>`;
+  stream.insertBefore(card, $('officeList'));
+  card.querySelector('#afSave').onclick = () => {
+    const name = card.querySelector('#afName').value.trim();
+    if (!name) { alert('名称不能为空'); return; }
+    const list = loadCustomAgents();
+    list.push({
+      id: 'custom-' + Date.now(),
+      name,
+      icon: card.querySelector('#afIcon').value.trim() || '🤖',
+      desc: card.querySelector('#afDesc').value.trim(),
+      opening: card.querySelector('#afOpen').value.trim() || `你现在是「${name}」。请先简单介绍一下你能做什么。`,
+    });
+    saveCustomAgents(list);
+    renderOfficePage();
+  };
+}
+
+async function renderOfficeExperts(listWrap) {
+  const s = state.serverState || {};
+  let builtin = [];
+  try { builtin = (await api('/api/agents')).agents; } catch { /* 忽略 */ }
+  const custom = loadCustomAgents();
+  const all = [...custom.map((a) => ({ ...a, custom: true })), ...builtin.map((a) => ({ ...a }))];
+  const use = loadAgentUse();
+  const installed = all.filter((a) => (use[a.id] || 0) > 0);
+  const kw = state.officeKw || '';
+  const match = (a) => !kw || `${a.name} ${a.desc ?? ''}`.toLowerCase().includes(kw);
+
+  listWrap.innerHTML = '';
+
+  const insCard = document.createElement('div');
+  insCard.className = 'office-section';
+  insCard.innerHTML = `<div class="office-sec-t">已安装 <span class="dim">${installed.length}</span></div>` +
+    (installed.length ? '' : '<div class="pc-empty">暂无已召唤的专家 —— 在下方「公开」里点击召唤。</div>');
+  listWrap.appendChild(insCard);
+  for (const a of installed) {
+    if (!match(a)) continue;
+    listWrap.appendChild(expertCard(a, '已召唤 ' + use[a.id] + ' 次', true));
+  }
+
+  const pubCard = document.createElement('div');
+  pubCard.className = 'office-section';
+  pubCard.innerHTML =
+    `<div class="office-sec-t">公开 <span class="dim">${all.filter(match).length}</span></div>` +
+    `<div class="office-sec-s">本地可用的专家目录：点击召唤即可使用（自动建会话并注入开场指令）。</div>`;
+  listWrap.appendChild(pubCard);
+  const pubList = all.filter(match);
+  if (!pubList.length) {
+    pubCard.appendChild(Object.assign(document.createElement('div'), { className: 'pc-empty', textContent: '（无匹配专家）' }));
+    return;
+  }
+  const grid = document.createElement('div');
+  grid.className = 'expert-grid';
+  pubList.forEach((a, i) => grid.appendChild(expertCard(a, i < 2 ? '办公类' : '通用')));
+  pubCard.appendChild(grid);
+}
+
+function expertCard(a, tag, installedMode) {
+  const card = document.createElement('div');
+  card.className = 'expert-card';
+  card.innerHTML =
+    `<div class="ec-top"><span class="ec-av">${esc((a.icon || a.name || '?').slice(0, 2))}</span>` +
+    `<span class="ec-nm">${esc(a.name)}</span><span class="ec-tag">${esc(tag ?? '')}</span></div>` +
+    `<div class="ec-ds">${esc(a.desc || '')}</div>` +
+    `<div class="ec-ops"><button class="pbtn accent" data-sum>召唤</button>` +
+    (a.custom ? `<button class="pbtn danger" data-del>删除</button>` : '') +
+    `</div>`;
+  card.querySelector('[data-sum]').onclick = () => {
+    bumpAgentUse(a.id);
+    startAgent(a);
+  };
+  const del = card.querySelector('[data-del]');
+  if (del) del.onclick = () => {
+    if (!confirm(`删除自定义专家「${a.name}」？`)) return;
+    saveCustomAgents(loadCustomAgents().filter((x) => x.id !== a.id));
+    renderOfficePage();
+  };
+  return card;
+}
+
+async function renderOfficeSkills(listWrap) {
+  const s = state.serverState || {};
+  const rawTools = Array.isArray(s.tools) ? s.tools : String(s.tools || 'read_file, write_file').split(',');
+  const names = rawTools.map((x) => String(x).trim()).filter(Boolean);
+  const kw = state.officeKw || '';
+  listWrap.innerHTML = `<div class="office-sec-t">已注册技能 <span class="dim">${names.length}</span></div>`;
+  const grid = document.createElement('div');
+  grid.className = 'expert-grid';
+  let shown = 0;
+  for (const n of names) {
+    const desc = toolDesc(n);
+    if (kw && !`${n} ${desc}`.toLowerCase().includes(kw)) continue;
+    shown += 1;
+    const card = document.createElement('div');
+    card.className = 'expert-card';
+    card.innerHTML =
+      `<div class="ec-top"><span class="ec-av mono">⚙</span><span class="ec-nm mono">${esc(n)}</span></div>` +
+      `<div class="ec-ds">${esc(desc)}</div>` +
+      `<div class="ec-ops dim">已注册 · 内核实时提供</div>`;
+    grid.appendChild(card);
+  }
+  if (!shown) listWrap.appendChild(Object.assign(document.createElement('div'), { className: 'pc-empty', textContent: '（无匹配技能）' }));
+  listWrap.appendChild(grid);
+}
+
+function renderOfficeConnectors(listWrap) {
+  const s = state.serverState || {};
+  listWrap.innerHTML =
+    `<div class="office-sec-t">已挂载连接器</div>` +
+    `<div class="conn-list"><div class="expert-card"><div class="ec-top"><span class="ec-av">🔌</span><span class="ec-nm">MCP 服务器</span><span class="ec-tag">${s.mcp || '无'}</span></div>` +
+    `<div class="ec-ds">stdio 传输 · policy/mcp-servers.json 声明；HTTP 传输已支持 url 声明（对照智作 streamable http）。</div>` +
+    `<div class="ec-ops dim">自动挂载 · 内核启动时连接</div></div>` +
+    `<div class="expert-card"><div class="ec-top"><span class="ec-av">🧩</span><span class="ec-nm">插件</span><span class="ec-tag">plugins/plugins.json</span></div>` +
+    `<div class="ec-ds">cordis 风格装配：manifest + overlay patch；当前已装载 example-echo。</div>` +
+    `<div class="ec-ops dim">随内核启动加载</div></div></div>` +
+    `<div class="office-sec-t" style="margin-top:10px">说明</div><div class="pc-empty">连接器声明写在 policy/mcp-servers.json，改完重启内核生效。</div>`;
+}
+
+function renderOfficeKnowledge(listWrap) {
+  listWrap.innerHTML =
+    `<div class="office-sec-t">知识库 = 工作区笔记 + 长期记忆</div>` +
+    `<div class="pc-empty">笔记存于 notes/（agent 可直接读取），记忆存于 MCP memory 服务。</div>` +
+    `<div class="office-ops"><button class="pbtn accent" id="kbNote">＋ 笔记</button></div>`;
+  const noteWrap = document.createElement('div');
+  noteWrap.className = 'office-ops';
+  listWrap.appendChild(noteWrap);
+  $('kbNote').onclick = () => openNoteEditor(noteWrap, '', '');
+  let files = [];
+  try { files = []; } catch { /* noop */ }
+  // 笔记列表（复用办公 API）
+  api('/api/notes').then((d) => {
+    for (const f of d.files) {
+      const row = document.createElement('div');
+      row.className = 'prow';
+      row.innerHTML =
+        `<span class="prow-t">📄 ${esc(f.name)}</span>` +
+        `<span class="prow-time">${f.size} 字节</span>` +
+        `<span class="prow-ops"><button class="pbtn" data-edit="${esc(f.name)}">编辑</button>` +
+        `<button class="pbtn danger" data-deln="${esc(f.name)}">删除</button></span>`;
+      noteWrap.appendChild(row);
+      row.querySelector('[data-edit]').onclick = async () => {
+        const dd = await api(`/api/note?path=${encodeURIComponent('notes/' + f.name)}`).catch(() => null);
+        openNoteEditor(noteWrap, 'notes/' + f.name, dd ? dd.content : '');
+      };
+      row.querySelector('[data-deln]').onclick = async () => {
+        if (!confirm(`删除笔记 ${f.name}？`)) return;
+        await api(`/api/note?path=${encodeURIComponent('notes/' + f.name)}`, { method: 'DELETE' });
+        renderOfficePage();
+      };
+    }
+  }).catch(() => {});
+}
+
+/* ---- 云智能体：智能体卡片，一键开场 ---- */
+
+async function renderAgentsPage() {
+  const stream = $('stream');
+  stream.innerHTML = '';
+  stream.appendChild(pageCard('智能体广场', '选择一个智能体 → 自动建会话并注入开场指令'));
+  let agents = [];
+  try {
+    agents = (await api('/api/agents')).agents;
+  } catch (e) {
+    stream.appendChild(Object.assign(document.createElement('div'), { className: 'msg note err', textContent: `读取失败：${e.message}` }));
+    return;
+  }
+  const grid = document.createElement('div');
+  grid.className = 'agent-grid';
+  for (const a of agents) {
+    const c = document.createElement('button');
+    c.type = 'button';
+    c.className = 'agent-card';
+    c.innerHTML =
+      `<div class="ag-ic">${esc(a.icon || '🤖')}</div>` +
+      `<div class="ag-nm">${esc(a.name)}</div>` +
+      `<div class="ag-ds">${esc(a.desc || '')}</div>`;
+    c.onclick = () => startAgent(a);
+    grid.appendChild(c);
+  }
+  stream.appendChild(grid);
+}
+
+async function startAgent(agent) {
+  try {
+    const { id } = await api('/api/sessions', { method: 'POST', body: JSON.stringify({ title: agent.name }) });
+    await refreshSessions();
+    await openSession(id, agent.name, { skipWelcome: true });
+    const input = $('input');
+    input.value = agent.opening || `请介绍下你能做什么。`;
+    send();
+  } catch (e) {
+    appendNote(`启动智能体失败：${e.message}`, true);
+  }
+}
+
+/* ---------------- 分组筛选下拉 ---------------- */
+
+function closeProjMenu() {
+  const m = $('projMenu');
+  if (m) m.remove();
+}
+
+function openProjFilterMenu() {
+  closeProjMenu();
+  const menu = document.createElement('div');
+  menu.id = 'projMenu';
+  menu.style.cssText =
+    'position:fixed;z-index:50;background:var(--panel3);border:1px solid var(--line);border-radius:10px;' +
+    'padding:4px;min-width:150px;box-shadow:0 12px 32px rgba(0,0,0,.5)';
+  const mk = (label, val) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = val ? label : label;
+    b.style.cssText = 'display:block;width:100%;text-align:left;background:transparent;border:0;color:var(--text-dim);font:12px/1.5 inherit;font-family:inherit;padding:7px 10px;border-radius:6px;cursor:pointer' + (state.projFilter === val ? ';color:var(--accent);background:var(--accent-soft)' : '');
+    b.onmouseenter = () => { b.style.background = 'var(--accent-soft)'; };
+    b.onmouseleave = () => { b.style.background = state.projFilter === val ? 'var(--accent-soft)' : 'transparent'; };
+    b.onclick = () => {
+      state.projFilter = val;
+      $('projFilterName').textContent = val || '项目';
+      $('projFilter').classList.toggle('active', !!val);
+      closeProjMenu();
+      refreshSessions();
+    };
+    menu.appendChild(b);
+  };
+  mk('全部分组', '');
+  const names = [...new Set(Object.values(state.groups))].sort();
+  for (const n of names) mk(n, n);
+  const r = $('projFilter').getBoundingClientRect();
+  menu.style.left = Math.min(r.left, window.innerWidth - 170) + 'px';
+  menu.style.top = (r.bottom + 6) + 'px';
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', closeProjMenu, { once: true }), 0);
+}
+
+function refreshSessionsQuiet() {
+  if (!state.sending) refreshSessions();
+}
+
+async function newSession(forSend) {
+  // 已有空「新会话」（仅 session_start）→ 直接跳转，不再重复创建
+  if (!forSend) {
+    try {
+      const { sessions } = await api('/api/sessions');
+      const empty = sessions.find((s) => s.title === '新会话' && s.events <= 1);
+      if (empty) {
+        switchView('chat');
+        await openSession(empty.id, empty.title);
+        return;
+      }
+    } catch { /* 探测失败则走正常创建 */ }
+  }
+  try {
+    const { id } = await api('/api/sessions', { method: 'POST', body: JSON.stringify({ title: '新会话' }) });
+    state.sessionId = null;
+    await refreshSessions();
+    await openSession(id, '新会话', { skipWelcome: !!forSend });
+    $('input').focus();
+  } catch (e) {
+    appendNote(`创建会话失败：${e.message}`, true);
+  }
+}
+
+async function openSession(id, title, opts) {
+  opts = opts || {};
+  state.sessionId = id;
+  state.sessionTitle = title || id;
+  state.lastSeq = 0;
+  state.events = 0;
+  state.hasEverScrolled = false;
+  state.pendingUserText = null;
+  state.editing = null;
+  const eb = $('editBanner');
+  if (eb) eb.style.display = 'none';
+  state.toolRows.clear();
+  state.approvalCards.clear();
+  state.shownApprovals.clear();
+  state.stats = { rounds: 0, steps: 0, tokens: 0 };
+  state.traceSeq = 0;
+  $('sessTitle').textContent = state.sessionTitle;
+  postToHost({ type: 'session-title', title: state.sessionTitle });
+  setSessStatus(false, '');
+  $('stream').innerHTML = '';
+  $('send').disabled = false;
+  $('send').textContent = '➤';
+  updateStatusBar();
+  $('input').focus();
+  await pollEvents();
+  if (state.events === 0 && !opts.skipWelcome) renderWelcome();
+  refreshSessions();
+}
+
+/* ---------------- 欢迎屏 ---------------- */
+
+const SUGGESTIONS = [
+  { s1: '📝 写一个文件', s2: '在工作区创建 notes/todo.md，列三件今天要做的事' },
+  { s1: '🧠 记住一件事', s2: '用 memory_save 记住：用户喜欢深色界面' },
+  { s1: '📂 讲讲项目结构', s2: '读取 README.md 和 package.json，总结这个项目' },
+  { s1: '🔗 讲一条工作流', s2: '工作流 JSON 的 steps 里 parallel 和 dependencies 怎么用？' },
+];
+
+function renderWelcome() {
+  if (state.events > 0) return;
+  const old = $('welcome');
+  if (old) old.remove();
+  const div = document.createElement('div');
+  div.id = 'welcome';
+  div.innerHTML =
+    '<div class="big-logo">A</div>' +
+    '<h1>有什么可以帮你的？</h1>' +
+    '<p>agent 可读文件、写文件、调用 MCP 工具 —— 下面试试：</p>' +
+    '<div class="suggestions"></div>';
+  const box = div.querySelector('.suggestions');
+  for (const s of SUGGESTIONS) {
+    const c = document.createElement('div');
+    c.className = 'sug-card';
+    c.innerHTML = `<div class="s1">${s.s1}</div><div class="s2">${esc(s.s2)}</div>`;
+    c.onclick = () => {
+      $('input').value = s.s2;
+      fitInput();
+      $('input').focus();
+    };
+    box.appendChild(c);
+  }
+  $('stream').appendChild(div);
+}
+
+/* ---------------- Tab ---------------- */
+
+function switchTab(tab) {
+  state.tab = tab;
+  for (const t of document.querySelectorAll('.tab')) t.classList.toggle('active', t.dataset.tab === tab);
+  if (tab === 'trace') { state.traceSeq = 0; pollTrace(); }
+  else if (tab === 'ctx') renderCtx();
+  else reloadDialog();
+}
+
+/* ---------------- 上下文页（对照智作：统计卡 / Token 组成环 / 耗时环 / 组成条 / 趋势 / 浏览器） ---------------- */
+
+function fmtNum(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}K`;
+  return String(Math.round(n));
+}
+
+function fmtDurLong(ms) {
+  ms = Number(ms) || 0;
+  const m = Math.floor(ms / 60000);
+  const s = Math.round((ms % 60000) / 1000);
+  return m > 0 ? `${m} 分 ${s} 秒` : `${s} 秒`;
+}
+
+/** SVG 环形图（零依赖）：segments [{v, color}] */
+function donut(segments, centerBig, centerSub) {
+  const total = segments.reduce((a, s) => a + s.v, 0) || 1;
+  const R = 50;
+  const C = 2 * Math.PI * R;
+  let off = 0;
+  const segs = segments
+    .map((s) => {
+      const len = (s.v / total) * C;
+      const el = `<circle r="${R}" cx="70" cy="70" fill="none" stroke="${s.color}" stroke-width="13" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)" />`;
+      off += len;
+      return el;
+    })
+    .join('');
+  return `<svg width="140" height="140" viewBox="0 0 140 140"><circle r="${R}" cx="70" cy="70" fill="none" stroke="var(--panel3)" stroke-width="13" />${segs}<text x="70" y="66" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="700">${esc(centerBig)}</text><text x="70" y="84" text-anchor="middle" fill="var(--muted)" font-size="10">${esc(centerSub)}</text></svg>`;
+}
+
+function legendRow(color, name, val, pct) {
+  return `<div class="lg-row"><span class="lg-dot" style="background:${color}"></span><span class="lg-nm">${esc(name)}</span><span class="lg-v">${esc(val)}</span><span class="lg-p">${esc(pct)}</span></div>`;
+}
+
+async function renderCtx() {
+  const stream = $('stream');
+  stream.innerHTML = '';
+  if (!state.sessionId) {
+    stream.innerHTML = '<div class="msg note">选择会话后查看上下文分析。</div>';
+    return;
+  }
+  let d;
+  try {
+    d = await api(`/api/context/${state.sessionId}`);
+  } catch (e) {
+    stream.innerHTML = `<div class="msg note err">读取失败：${esc(e.message)}</div>`;
+    return;
+  }
+  const s = state.serverState || {};
+
+  // ---- 统计卡 ×6 ----
+  const billed = d.billing.input + d.billing.output;
+  const cards = document.createElement('div');
+  cards.className = 'ctx-cards';
+  cards.innerHTML =
+    `<div class="cc"><div class="cc-t">轮次 / 步数</div><div class="cc-v">${d.rounds} / ${d.steps}</div></div>` +
+    `<div class="cc"><div class="cc-t">计费 Token</div><div class="cc-v">${fmtNum(billed)}</div><div class="cc-s">输入 ${fmtNum(d.billing.input)} · 输出 ${fmtNum(d.billing.output)}</div></div>` +
+    `<div class="cc"><div class="cc-t">工具调用</div><div class="cc-v">${d.toolCalls} 次</div><div class="cc-s">运行 ${fmtDurLong(d.toolMs)}</div></div>` +
+    `<div class="cc"><div class="cc-t">活跃时长</div><div class="cc-v">${fmtDurLong(d.activeMs)}</div><div class="cc-s">模型调用 ${d.modelCalls} 次</div></div>` +
+    `<div class="cc"><div class="cc-t">模型</div><div class="cc-v sm">${esc(d.model)}</div><div class="cc-s">上下文窗口 ${d.window ? fmtNum(d.window) : '未报告'}</div></div>` +
+    `<div class="cc"><div class="cc-t">压缩</div><div class="cc-v">${d.compactions} 次</div><div class="cc-s">当前上下文 ~${fmtNum(d.currentTokens)} tok</div></div>`;
+  stream.appendChild(cards);
+
+  // ---- 两列：Token 组成 + 耗时 ----
+  const two = document.createElement('div');
+  two.className = 'ctx-two';
+  const inV = d.billing.input, outV = d.billing.output;
+  const billTotal = inV + outV;
+  const tokDonut = document.createElement('div');
+  tokDonut.className = 'ctx-box';
+  tokDonut.innerHTML =
+    `<div class="ctx-box-t">Token 组成 <span class="dim">计费口径，按整个会话</span></div>` +
+    `<div class="donut-wrap">${donut(
+      [
+        { v: inV, color: '#4f8ef7' },
+        { v: outV, color: '#e8a33d' },
+      ],
+      fmtNum(billTotal),
+      '计费 Token',
+    )}<div class="lg">${legendRow('#4f8ef7', '输入', fmtNum(inV), billTotal ? Math.round((inV / billTotal) * 100) + '%' : '—')}${legendRow('#e8a33d', '输出', fmtNum(outV), billTotal ? Math.round((outV / billTotal) * 100) + '%' : '—')}</div></div>`;
+
+  const modelMs = Math.max(0, d.activeMs - d.toolMs);
+  const durDonut = document.createElement('div');
+  durDonut.className = 'ctx-box';
+  durDonut.innerHTML =
+    `<div class="ctx-box-t">耗时 <span class="dim">按事件时间戳估算</span></div>` +
+    `<div class="donut-wrap">${donut(
+      [
+        { v: modelMs, color: '#c7a6f0' },
+        { v: d.toolMs, color: '#7fd6c2' },
+      ],
+      fmtDurLong(d.activeMs),
+      '活跃时长',
+    )}<div class="lg">${legendRow('#c7a6f0', '模型回合', fmtDurLong(modelMs), d.activeMs ? Math.round((modelMs / d.activeMs) * 100) + '%' : '—')}${legendRow('#7fd6c2', '工具运行', fmtDurLong(d.toolMs), d.activeMs ? Math.round((d.toolMs / d.activeMs) * 100) + '%' : '—')}</div></div>`;
+  two.appendChild(tokDonut);
+  two.appendChild(durDonut);
+  stream.appendChild(two);
+
+  // ---- 当前上下文组成条 ----
+  const comp = d.composition;
+  const compTotal = d.currentTokens || 1;
+  const segs = [
+    ['系统提示+工具定义', comp.system, '#b088f0'],
+    ['用户消息', comp.user, '#4f8ef7'],
+    ['助手回复', comp.assistant, '#e8a33d'],
+    ['工具结果', comp.toolResult, '#7fd6c2'],
+  ];
+  const compBox = document.createElement('div');
+  compBox.className = 'ctx-box wide';
+  compBox.innerHTML =
+    `<div class="ctx-box-t">当前上下文 <span class="dim">~${fmtNum(d.currentTokens)} tok${d.window ? ` / ${fmtNum(d.window)} · ${Math.round((d.currentTokens / d.window) * 100)}%` : ''}（估算）</span></div>` +
+    `<div class="comp-bar">${segs.map(([, v, c]) => `<i style="flex:${Math.max(v, compTotal * 0.002)};background:${c}"></i>`).join('')}</div>` +
+    `<div class="lg grid">${segs.map(([nm, v, c]) => legendRow(c, nm, '~' + fmtNum(v), Math.round((v / compTotal) * 100) + '%')).join('')}</div>`;
+  stream.appendChild(compBox);
+
+  // ---- 上下文趋势（柱图 + 压缩虚线） ----
+  const trendBox = document.createElement('div');
+  trendBox.className = 'ctx-box wide';
+  const requests = d.trend.filter((t) => t.type === 'request');
+  const maxTok = Math.max(...d.trend.map((t) => t.tokens), 1);
+  const bars = d.trend
+    .map((t) => {
+      if (t.type === 'compaction') return `<i class="tbar mark" style="height:100%"></i>`;
+      return `<i class="tbar" style="height:${Math.max(4, (t.tokens / maxTok) * 100)}%" title="第 ${t.turn} 轮 · ~${t.tokens.toLocaleString()} tok"></i>`;
+    })
+    .join('');
+  trendBox.innerHTML =
+    `<div class="ctx-box-t">上下文趋势 <span class="dim">${requests.length} 次请求 · 竖虚线 = 压缩重置（估算口径）</span></div>` +
+    `<div class="trend">${bars}</div>` +
+    `<div class="dim" style="font-size:10.5px">悬停柱体预览该请求的上下文规模。</div>`;
+  stream.appendChild(trendBox);
+
+  // ---- 上下文浏览器（每轮请求的组成估算） ----
+  const browser = document.createElement('div');
+  browser.className = 'ctx-box wide';
+  let rows = '';
+  let lastReq = 0;
+  for (const t of d.trend) {
+    if (t.type !== 'request') continue;
+    rows += `<div class="prow"><span class="prow-t">第 ${t.turn} 轮请求</span><span class="prow-time">~${t.tokens.toLocaleString()} tok</span></div>`;
+    lastReq = t.tokens;
+  }
+  browser.innerHTML = `<div class="ctx-box-t">上下文浏览器 <span class="dim">每次请求带了哪些内容（大小为估算）</span></div>${rows || '<div class="pc-empty">（无请求记录）</div>'}`;
+  stream.appendChild(browser);
+}
+
+function reloadDialog() {
+  if (state.sessionId) {
+    state.lastSeq = 0;
+    state.events = 0;
+    state.toolRows.clear();
+    state.approvalCards.clear();
+    state.shownApprovals.clear();
+    state.stats = { rounds: 0, steps: 0, tokens: 0 };
+    $('stream').innerHTML = '';
+    pollEvents();
+  } else {
+    showWelcomeStandalone();
+  }
+}
+
+/* ---------------- 事件轮询 ---------------- */
+
+const RENDERED_TYPES = new Set(['user', 'assistant', 'tool_call', 'tool_result', 'approval_request', 'approval_decision', 'note']);
+
+async function pollEvents() {
+  if (!state.sessionId) return;
+  if (state.sending) return; // 流式进行中由 SSE 驱动渲染，轮询只做兜底
+  if (state.tab === 'trace') { await pollTrace(); return; }
+  if (state.tab !== 'dialog') return;
+  let data;
+  try {
+    data = await api(`/api/sessions/${state.sessionId}/events?since=${state.lastSeq}`);
+  } catch {
+    return;
+  }
+  for (const ev of data.events) {
+    if (ev.type !== 'user') removeThinking(); // 出现真实过程/回复才撤 loading；user 事件（去重跳过）不撤
+    if (RENDERED_TYPES.has(ev.type)) state.events += 1;
+    renderEvent(ev);
+  }
+  state.lastSeq = Math.max(state.lastSeq, data.lastSeq);
+  await renderPendingApprovals();
+  scrollBottom();
+}
+
+/** 轨迹 Tab：增量追加事件行 */
+/* ---------------- 轨迹页（对照智作：统计条 + 过滤 + 时间线 + 轮次分组步骤行） ---------------- */
+
+const traceOpts = { collapseRounds: false, collapseTools: false, q: '' };
+
+function traceBrief(ev) {
+  switch (ev.type) {
+    case 'user': return String(ev.text ?? '');
+    case 'assistant': return String(ev.text ?? '') || '(调用工具)';
+    case 'tool_call': return `${ev.name} ${truncate(ev.arguments, 90)}`;
+    case 'tool_result': return `${ev.ok ? '✓' : '✗'} ${truncate(ev.preview, 90)}`;
+    case 'approval_request': return `审批 ${ev.tool} → ${truncate(ev.detail, 60)}`;
+    case 'approval_decision': return ev.approved ? '✓ 已允许' : '✗ 已拒绝';
+    case 'note': return String(ev.text ?? '');
+    case 'compaction': return `压缩 ${ev.covered ?? '?'} 条`;
+    default: return '';
+  }
+}
+
+function ms(a, b) {
+  const x = Date.parse(a), y = Date.parse(b);
+  return Math.max(0, y - x);
+}
+
+async function pollTrace() {
+  if (!state.sessionId) return;
+  let data;
+  try {
+    data = await api(`/api/sessions/${state.sessionId}/events?since=0`);
+  } catch {
+    return;
+  }
+  if (data.lastSeq === state.traceSeq) return; // 无新事件不重绘
+  state.traceSeq = data.lastSeq;
+  renderTracePage(data.events);
+}
+
+function renderTracePage(events) {
+  const stream = $('stream');
+  stream.innerHTML = '';
+
+  // ---- 统计条 ----
+  const evs = events.filter((e) => e.ts);
+  const rounds = evs.filter((e) => e.type === 'user').length;
+  const steps = evs.filter((e) => e.type === 'tool_call').length;
+  const callTs = new Map();
+  let toolMs = 0;
+  for (const e of evs) {
+    if (e.type === 'tool_call') callTs.set(String(e.callId), Date.parse(e.ts));
+    else if (e.type === 'tool_result') {
+      const t0 = callTs.get(String(e.callId));
+      if (t0) toolMs += Math.max(0, Date.parse(e.ts) - t0);
+    }
+  }
+  const totalMs = evs.length > 1 ? ms(evs[0].ts, evs[evs.length - 1].ts) : 0;
+  const tokens = evs.reduce((acc, e) => acc + (e.usage && e.usage.total_tokens ? e.usage.total_tokens : 0), 0);
+
+  const stats = document.createElement('div');
+  stats.className = 'trace-stats';
+  stats.innerHTML =
+    `<b>${rounds}</b> 轮 <b>${steps}</b> 步` +
+    `<span class="sep">·</span>工具 ${fmtDur(toolMs)}` +
+    `<span class="sep">·</span>总用时 ${fmtDur(totalMs)}` +
+    `<span class="sep">·</span>累计 <b>${tokens.toLocaleString()}</b> tok`;
+  stream.appendChild(stats);
+
+  // ---- 过滤控件 ----
+  const ctrl = document.createElement('div');
+  ctrl.className = 'trace-ctrl';
+  ctrl.innerHTML =
+    `<button type="button" class="tbtn ${traceOpts.collapseRounds ? 'on' : ''}" data-f="rounds">${traceOpts.collapseRounds ? '展开所有轮次' : '收起所有轮次'}</button>` +
+    `<button type="button" class="tbtn ${traceOpts.collapseTools ? 'on' : ''}" data-f="tools">${traceOpts.collapseTools ? '展开工具调用' : '收起工具调用'}</button>` +
+    `<input id="traceSearch" placeholder="搜索步骤内容…" value="${esc(traceOpts.q)}" />`;
+  stream.appendChild(ctrl);
+  ctrl.querySelector('[data-f="rounds"]').onclick = (e) => {
+    traceOpts.collapseRounds = !traceOpts.collapseRounds;
+    renderTracePage(events);
+  };
+  ctrl.querySelector('[data-f="tools"]').onclick = () => {
+    traceOpts.collapseTools = !traceOpts.collapseTools;
+    renderTracePage(events);
+  };
+  ctrl.querySelector('#traceSearch').addEventListener('input', (e) => {
+    traceOpts.q = e.target.value.trim().toLowerCase();
+    renderTracePage(events);
+    const inp = $('traceSearch');
+    inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
+  });
+
+  // ---- 时间线（输入/模型/工具 三车道） ----
+  const t0 = evs.length ? Date.parse(evs[0].ts) : 0;
+  const t1 = evs.length ? Date.parse(evs[evs.length - 1].ts) : 0;
+  const span = Math.max(1, t1 - t0);
+  const tl = document.createElement('div');
+  tl.className = 'timeline';
+  const lane = (name, cls) => {
+    const l = document.createElement('div');
+    l.className = `lane ${cls}`;
+    l.innerHTML = `<span class="lane-name">${name}</span><div class="lane-track"></div>`;
+    return l;
+  };
+  const lIn = lane('输入', 'l-in');
+  const lModel = lane('模型', 'l-model');
+  const lTool = lane('工具', 'l-tool');
+  const pct = (ts) => `${Math.min(100, Math.max(0, ((Date.parse(ts) - t0) / span) * 100))}%`;
+  const toolBars = [];
+  for (const e of evs) {
+    if (e.type === 'user') {
+      const tick = document.createElement('i');
+      tick.className = 'tick in';
+      tick.style.left = pct(e.ts);
+      lIn.querySelector('.lane-track').appendChild(tick);
+    } else if (e.type === 'assistant') {
+      const tick = document.createElement('i');
+      tick.className = 'tick model';
+      tick.style.left = pct(e.ts);
+      lModel.querySelector('.lane-track').appendChild(tick);
+    } else if (e.type === 'tool_call') {
+      toolBars.push([e, pct(e.ts)]);
+    }
+  }
+  for (const [call, left] of toolBars) {
+    const end = evs.find((x) => x.type === 'tool_result' && String(x.callId) === String(call.callId));
+    const w = end ? Math.max(0.4, ((Date.parse(end.ts) - Date.parse(call.ts)) / span) * 100) : 0.5;
+    const bar = document.createElement('i');
+    bar.className = 'bar tool';
+    bar.style.left = left;
+    bar.style.width = `${w}%`;
+    lTool.querySelector('.lane-track').appendChild(bar);
+  }
+  tl.appendChild(lIn);
+  tl.appendChild(lModel);
+  tl.appendChild(lTool);
+  stream.appendChild(tl);
+
+  // ---- 轮次分组步骤行 ----
+  const turns = [];
+  for (const e of evs) {
+    if (e.type === 'user') turns.push([]);
+    if (turns.length) turns[turns.length - 1].push(e);
+    else if (e.type !== 'session_start') turns.push([e]);
+  }
+  const q = traceOpts.q;
+  turns.forEach((items, idx) => {
+    const nSteps = items.filter((e) => e.type === 'tool_call').length;
+    const round = document.createElement('div');
+    round.className = 'round' + (traceOpts.collapseRounds ? ' collapsed' : '');
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'round-head';
+    head.innerHTML = `<span>第 ${idx + 1} 轮</span><span class="r-meta">${nSteps} 步 · ${items.length} 事件</span>`;
+    head.onclick = () => round.classList.toggle('collapsed');
+    round.appendChild(head);
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'round-body';
+    let prevTs = items.length ? items[0].ts : null;
+    for (const e of items) {
+      const brief = traceBrief(e);
+      if (q && !brief.toLowerCase().includes(q)) { prevTs = e.ts; continue; }
+      const isTool = e.type === 'tool_call' || e.type === 'tool_result';
+      const isUser = e.type === 'user';
+      if (isTool && traceOpts.collapseTools) { prevTs = e.ts; continue; }
+      const row = document.createElement('div');
+      row.className = 'step-row';
+      const badge = isUser ? '<span class="badge b-req">请求</span>'
+        : isTool ? '<span class="badge b-tool">工具</span>'
+        : e.type === 'assistant' ? '<span class="badge b-reply">回复</span>'
+        : '<span class="badge">记录</span>';
+      let right = '';
+      if (e.usage && e.usage.total_tokens) right += ` <span class="tok">${(e.usage.prompt_tokens ?? 0).toLocaleString()} → ${(e.usage.completion_tokens ?? 0).toLocaleString()} tok</span>`;
+      if (prevTs && e.ts) {
+        const d = ms(prevTs, e.ts);
+        if (d > 0) right += ` <span class="dur">${fmtDur(d)}</span>`;
+      }
+      row.innerHTML = `<span class="s-seq">#${e.seq}</span>${badge}<span class="s-tx">${esc(truncate(brief, 150))}</span><span class="s-meta">${right}</span>`;
+      bodyEl.appendChild(row);
+      prevTs = e.ts;
+    }
+    round.appendChild(bodyEl);
+    stream.appendChild(round);
+  });
+  const el = $('streamScroll');
+  el.scrollTop = 0;
+}
+
+function renderEvent(ev) {
+  switch (ev.type) {
+    case 'user':
+      if (state.pendingUserText !== null && ev.text === state.pendingUserText) {
+        state.pendingUserText = null; // 乐观块已渲染（时间戳即发送时刻），跳过
+        break;
+      }
+      appendUser(ev.text, ev.ts, ev.seq);
+      break;
+    case 'assistant':
+      if (ev.withToolCalls) {
+        if (ev.text) appendThinkRow(ev.text);
+      } else {
+        if (typeof ev.usage === 'object' && ev.usage && ev.usage.total_tokens) {
+          state.stats.tokens += ev.usage.total_tokens;
+          updateStatusBar();
+        }
+        state.stats.rounds += 1;
+        updateStatusBar();
+        appendMsg('assistant', ev.text, ev.ts);
+      }
+      break;
+    case 'tool_call':
+      state.stats.steps += 1;
+      updateStatusBar();
+      renderToolCall(ev);
+      break;
+    case 'tool_result':
+      renderToolResult(ev);
+      break;
+    case 'approval_request':
+      renderApprovalSkeleton(ev);
+      break;
+    case 'approval_decision':
+      markApprovalDecision(ev);
+      break;
+    case 'note':
+      appendNote(ev.text);
+      break;
+    case 'compaction':
+      appendNote(`📋 已压缩早期对话（${ev.covered ?? '?'} 条）—— 摘要已注入上下文`);
+      break;
+  }
+}
+
+/* ---------------- 渲染件（回合分组：对照智作「用时 X · N 个工具失败 ▸」摘要行） ---------------- */
+
+function currentTurnEl() {
+  return state.currentTurn && state.currentTurn.isConnected ? state.currentTurn : $('stream');
+}
+
+function fmtDur(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} 秒`;
+  const m = Math.floor(ms / 60_000);
+  const s = Math.round((ms % 60_000) / 1000);
+  return `${m} 分 ${s} 秒`;
+}
+
+function fmtClock(ts) {
+  const d = ts ? new Date(ts) : new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function appendUser(text, ts, seq) {
+  // 回合容器：本轮所有过程与产物都在其中；最终回复到达时折叠为摘要行
+  const turn = document.createElement('div');
+  turn.className = 'turn';
+  turn.dataset.steps = '0';
+  turn.dataset.fails = '0';
+  turn.dataset.start = ts ? String(Date.parse(ts)) : String(Date.now());
+  $('stream').appendChild(turn);
+  state.currentTurn = turn;
+
+  const block = document.createElement('div');
+  block.className = 'msg user';
+  block.innerHTML = `<div class="ut">${esc(text ?? '')}</div>` +
+    `<div class="u-meta"><span class="u-time">${fmtClock(ts)}</span>` +
+    `<button class="copy-btn" type="button" data-edit title="编辑并重发">✎</button>` +
+    `<button class="copy-btn" type="button" data-copy title="复制">⧉</button></div>`;
+  block.querySelector('[data-copy]').onclick = () => {
+    const btn = block.querySelector('[data-copy]');
+    const done = () => { btn.textContent = '✓'; setTimeout(() => { btn.textContent = '⧉'; }, 1200); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text ?? '').then(done).catch(done);
+    } else { done(); }
+  };
+  block.querySelector('[data-edit]').onclick = () => {
+    const input = $('input');
+    input.value = text ?? '';
+    fitInput();
+    input.focus();
+    // 编辑模式：记下截断点（该消息 seq），发送时先截断历史再重发
+    if (seq) {
+      state.editing = { seq };
+      const banner = $('editBanner');
+      banner.style.display = 'flex';
+      banner.dataset.seq = String(seq);
+      banner.firstChild && (banner.firstChild.textContent = `✎ 正在编辑第 ${seq} 条消息（发送后其后的内容将被替换）`);
+    }
+  };
+  turn.appendChild(block);
+  scrollBottom();
+}
+
+/** 回合结束：把工具/思考过程折叠为「用时 X · N 个工具 · M 失败 ▸」摘要行 */
+function finalizeTurn(replyTs) {
+  const turn = state.currentTurn;
+  if (!turn || !turn.isConnected) return;
+  const steps = Number(turn.dataset.steps || 0);
+  const fails = Number(turn.dataset.fails || 0);
+  const start = Number(turn.dataset.start || 0);
+  const end = replyTs ? Date.parse(replyTs) : Date.now();
+  const dur = Math.max(0, end - start);
+
+  const stepsBox = document.createElement('div');
+  stepsBox.className = 'turn-steps';
+  // 收集过程件（思考/工具/审批/便签）；最终回复留在折叠盒之外
+  const kids = [...turn.children].slice(1).filter(
+    (k) => !(k.classList && k.classList.contains('msg') && k.classList.contains('assistant')),
+  );
+  for (const k of kids) stepsBox.appendChild(k);
+  const replyEl = [...turn.children].find(
+    (k) => k.classList && k.classList.contains('msg') && k.classList.contains('assistant'),
+  );
+  if (stepsBox.children.length) {
+    if (replyEl) turn.insertBefore(stepsBox, replyEl);
+    else turn.appendChild(stepsBox);
+  }
+
+  const summary = document.createElement('div');
+  summary.className = 'turn-summary';
+  summary.innerHTML =
+    `<span>用时 ${fmtDur(dur)}</span>` +
+    (steps ? `<span class="sep">·</span><span>${steps} 个工具</span>` : '') +
+    (fails ? `<span class="sep">·</span><span class="bad">${fails} 个工具失败</span>` : '') +
+    '<span class="chev">▸</span>';
+  summary.onclick = () => turn.classList.toggle('show-steps');
+  if (stepsBox.parentNode === turn) turn.insertBefore(summary, stepsBox);
+  else turn.appendChild(summary);
+
+  turn.classList.add('done');
+  state.currentTurn = null;
+}
+
+function appendMsg(kind, text, ts) {
+  const turn = currentTurnEl();
+  const div = document.createElement('div');
+  div.className = `msg ${kind}`;
+  div.innerHTML = `<div class="body md">${md(text)}</div>`;
+  turn.appendChild(div);
+  if (kind === 'assistant') {
+    // 悬停复制原始 Markdown
+    const cp = document.createElement('button');
+    cp.type = 'button';
+    cp.className = 'a-copy';
+    cp.title = '复制回复';
+    cp.textContent = '⧉';
+    cp.onclick = () => {
+      const done = () => { cp.textContent = '✓'; setTimeout(() => { cp.textContent = '⧉'; }, 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text ?? '').then(done).catch(done);
+      } else { done(); }
+    };
+    div.appendChild(cp);
+    if (ts) finalizeTurn(ts);
+  }
+  scrollBottom();
+}
+
+function appendNote(text, isErr) {
+  const div = document.createElement('div');
+  div.className = 'msg note' + (isErr ? ' err' : '');
+  div.textContent = text ?? '';
+  currentTurnEl().appendChild(div);
+  scrollBottom();
+}
+
+/** 思考折叠行（对照智作 ℋ 思考 · … ▸） */
+function appendThinkRow(text) {
+  const t = String(text ?? '').trim();
+  if (!t) return;
+  const div = document.createElement('div');
+  div.className = 'think-row';
+  div.innerHTML =
+    '<span class="ic">ℋ</span>' +
+    `<span class="tx">思考 · ${esc(truncate(t, 96))}</span>` +
+    '<span class="chev">▶</span>' +
+    `<div class="full">${esc(t)}</div>`;
+  div.onclick = () => div.classList.toggle('open');
+  currentTurnEl().appendChild(div);
+  scrollBottom();
+}
+
+function showThinking() {
+  removeThinking();
+  const div = document.createElement('div');
+  div.className = 'thinking';
+  div.id = 'thinking';
+  div.innerHTML = '<span class="dotA"><i></i><i></i><i></i></span> 正在处理…';
+  currentTurnEl().appendChild(div);
+  scrollBottom(true);
+}
+function removeThinking() {
+  const t = $('thinking');
+  if (t) t.remove();
+}
+
+/* ---------------- 工具行 ---------------- */
+
+function renderToolCall(ev) {
+  const row = document.createElement('div');
+  row.className = 'tool-row run';
+  row.innerHTML =
+    '<span class="tdot"></span>' +
+    `<span class="verb">${esc(toolVerb(ev.name))}</span>` +
+    `<span class="target">${esc(truncate(toolTarget(ev.name, ev.arguments), 72))}</span>` +
+    `<span class="stat" id="st-${esc(ev.callId)}">…</span>` +
+    '<span class="chev">▶</span>' +
+    `<div class="body">` +
+    `<div class="label">参数</div><pre>${esc(pretty(ev.arguments))}</pre>` +
+    `<div class="label" style="margin-top:6px">结果</div><pre id="out-${esc(ev.callId)}">等待执行…</pre>` +
+    `</div>`;
+  row.onclick = (e) => {
+    if (e.target.closest('pre')) return;
+    row.classList.toggle('open');
+  };
+  const turn = currentTurnEl();
+  turn.appendChild(row);
+  turn.dataset.steps = String(Number(turn.dataset.steps || 0) + 1);
+  state.toolRows.set(ev.callId, { row, callTs: ev.ts ? Date.parse(ev.ts) : Date.now() });
+  scrollBottom();
+}
+
+function renderToolResult(ev) {
+  const rec = state.toolRows.get(ev.callId);
+  if (!rec) return;
+  const dur = rec.callTs && ev.ts ? Math.max(1, Date.parse(ev.ts) - rec.callTs) : null;
+  const st = rec.row.querySelector(`#st-${cssEsc(ev.callId)}`);
+  const diff = ev.data && ev.data.diff ? ev.data.diff : null;
+  let stat = '';
+  if (diff) stat = ` <span class="plus">+${diff.added}</span> <span class="minus">−${diff.removed}</span>`;
+  else {
+    const m = /（(\d[\d,]*) 字节）/.exec(ev.preview || '');
+    if (ev.ok && m) stat = ` <span class="plus">+${m[1]}</span>`;
+  }
+  st.innerHTML = `${stat}${dur ? ` ${fmtDur(dur)}` : ''}`;
+  rec.row.classList.remove('run');
+  rec.row.classList.add(ev.ok ? 'ok' : 'fail');
+  if (!ev.ok) {
+    const turn = rec.row.closest('.turn');
+    if (turn) turn.dataset.fails = String(Number(turn.dataset.fails || 0) + 1);
+  }
+  const out = rec.row.querySelector(`#out-${cssEsc(ev.callId)}`);
+  if (diff && diff.text) {
+    const wrap = document.createElement('div');
+    wrap.className = 'diff';
+    for (const line of String(diff.text).split('\n')) {
+      const ln = document.createElement('div');
+      ln.className = `diff-line ${line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : 'ctx'}`;
+      ln.textContent = line;
+      wrap.appendChild(ln);
+    }
+    out.innerHTML = '';
+    out.appendChild(wrap);
+  } else {
+    out.textContent = ev.preview || '(无输出)';
+  }
+}
+
+/* ---------------- 审批卡 ---------------- */
+
+function renderApprovalSkeleton(ev) {
+  const card = document.createElement('div');
+  card.className = 'approval-card';
+  card.dataset.approvalId = ev.approvalId;
+  card.innerHTML =
+    `<div class="title">⏸ 需要你的批准 · ${esc(ev.action)}</div>` +
+    `<div class="detail">${esc(ev.tool)} → ${esc(ev.detail)}</div>` +
+    `<div class="verdict wait" id="av-${esc(ev.approvalId)}">等待处理…</div>`;
+  $('stream').appendChild(card);
+  state.approvalCards.set(ev.approvalId, card);
+  scrollBottom();
+}
+
+async function renderPendingApprovals() {
+  let data;
+  try {
+    data = await api('/api/approvals/pending');
+  } catch {
+    return;
+  }
+  for (const p of data.pending) {
+    if (p.sessionId !== state.sessionId || state.shownApprovals.has(p.id)) continue;
+    state.shownApprovals.add(p.id);
+    let card = state.approvalCards.get(p.id);
+    if (!card) {
+      renderApprovalSkeleton({ type: 'approval_request', approvalId: p.id, tool: p.tool, action: p.action, detail: p.detail });
+      card = state.approvalCards.get(p.id);
+    }
+    if (!card.querySelector('.actions')) {
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      actions.innerHTML = '<button class="allow">允许</button><button class="deny">拒绝</button>';
+      actions.querySelector('.allow').onclick = (e) => {
+        e.stopPropagation();
+        const cb = card.querySelector('[data-remember]');
+        decide(p.id, true, cb && cb.checked ? p.tool : undefined);
+      };
+      actions.querySelector('.deny').onclick = (e) => { e.stopPropagation(); decide(p.id, false); };
+      const remember = document.createElement('label');
+      remember.className = 'remember';
+      remember.innerHTML = `<input type="checkbox" data-remember="${esc(p.tool)}" /> 本会话总是允许`;
+      actions.insertBefore(remember, actions.querySelector('.deny'));
+      card.insertBefore(actions, card.querySelector('.verdict'));
+      scrollBottom();
+    }
+  }
+}
+
+async function decide(id, approved, rememberTool) {
+  try {
+    await api(`/api/approvals/${id}/decision`, {
+      method: 'POST',
+      body: JSON.stringify({ approved, rememberTool, sessionId: state.sessionId }),
+    });
+  } catch (e) {
+    appendNote(`审批提交失败：${e.message}`, true);
+  }
+}
+
+function markApprovalDecision(ev) {
+  const card = state.approvalCards.get(ev.approvalId);
+  const v = card && card.querySelector('.verdict');
+  if (!v) return;
+  v.textContent = ev.approved ? '✓ 已允许' : '✗ 已拒绝';
+  v.className = 'verdict ' + (ev.approved ? 'ok' : 'no');
+  const actions = card.querySelector('.actions');
+  if (actions) actions.remove();
+}
+
+/* ---------------- 发送 / 停止 ---------------- */
+
+async function send() {
+  const input = $('input');
+  const text = input.value.trim();
+  if (!text || state.sending) return;
+  if (state.tab !== 'dialog') switchTab('dialog'); // 发消息 = 回到对话视图
+  // 编辑重发：先截断历史（该消息起全部丢弃），再走正常流式发送
+  if (state.editing) {
+    try {
+      await api(`/api/sessions/${state.sessionId}/truncate`, {
+        method: 'POST',
+        body: JSON.stringify({ beforeSeq: state.editing.seq }),
+      });
+    } catch (e) {
+      appendNote(`截断失败：${e.message}`, true);
+      return;
+    }
+    cancelEditing();
+    await openSession(state.sessionId, state.sessionTitle, { skipWelcome: true }); // 干净重渲染
+    if (!text || state.sending) return;
+  }
+  state.sending = true;
+  if (!state.sessionId) {
+    await newSession(true);
+    if (!state.sessionId) { state.sending = false; return; }
+  }
+  const w = $('welcome');
+  if (w) w.remove();
+  const btn = $('send');
+  btn.disabled = false;
+  btn.textContent = '■';
+  btn.classList.add('stop');
+  btn.title = '停止等待';
+  input.value = '';
+  fitInput();
+  state.pendingUserText = text;
+  appendUser(text);
+  showThinking();
+  state.events += 1;
+  setSessStatus(true, '进行中');
+  state.abortCtl = new AbortController();
+
+  // 附件组装：文本内联 / 图片上传+多模态分片
+  const payload = state.pendingFiles.length ? await buildPayload(text) : { text, parts: [], attachments: [] };
+  state.pendingFiles = [];
+  renderAttachChips();
+  // ---- 流式（SSE）：逐 token 打字机；过程事件实时；■ 真中断 ----
+  let streamBody = null;
+  let streamText = '';
+  let renderTimer = null;
+  const flushStream = () => {
+    if (streamBody) streamBody.innerHTML = md(streamText);
+  };
+  const ensureStreamBlock = () => {
+    if (!streamBody) {
+      removeThinking();
+      const div = document.createElement('div');
+      div.className = 'msg assistant streaming';
+      div.innerHTML = '<div class="body md"></div>';
+      currentTurnEl().appendChild(div);
+      streamBody = div.querySelector('.body');
+      streamText = '';
+    }
+  };
+  const scheduleRender = () => {
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => {
+      renderTimer = null;
+      flushStream();
+      scrollBottom();
+    }, 60);
+  };
+
+  try {
+    const res = await fetch(`/api/sessions/${state.sessionId}/turns/stream`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        text: payload.text,
+        ...(payload.parts.length ? { parts: payload.parts } : {}),
+        ...(payload.attachments.length ? { attachments: payload.attachments } : {}),
+      }),
+      signal: state.abortCtl.signal,
+    });
+    if (!res.ok || !res.body) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error || `HTTP ${res.status}`);
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let evName = 'message';
+        let payload = '';
+        for (const line of frame.split('\n')) {
+          if (line.startsWith('event:')) evName = line.slice(6).trim();
+          else if (line.startsWith('data:')) payload += line.slice(5).trim();
+        }
+        if (!payload) continue;
+        let data;
+        try { data = JSON.parse(payload); } catch { continue; }
+
+        if (evName === 'delta') {
+          ensureStreamBlock();
+          streamText += String(data.text ?? '');
+          scheduleRender();
+        } else if (evName === 'user') {
+          if (typeof data.seq === 'number') state.lastSeq = Math.max(state.lastSeq, data.seq);
+        } else if (evName === 'assistant') {
+          if (typeof data.seq === 'number') state.lastSeq = Math.max(state.lastSeq, data.seq);
+          if (data.withToolCalls) {
+            if (data.text) appendThinkRow(data.text);
+          } else if (streamBody) {
+            streamText = String(data.text ?? streamText);
+            flushStream();
+          } else {
+            appendMsg('assistant', data.text, data.ts);
+          }
+          state.stats.rounds += 1;
+          if (data.usage && data.usage.total_tokens) state.stats.tokens += data.usage.total_tokens;
+          updateStatusBar();
+        } else if (evName === 'done') {
+          if (streamBody) {
+            streamText = String(data.reply ?? streamText);
+            flushStream();
+            streamBody = null;
+          }
+          finalizeTurn();
+          setSessStatus(false, '完成');
+        } else if (evName === 'error') {
+          removeThinking();
+          appendNote(`发送失败：${data.message ?? '未知错误'}`, true);
+          setSessStatus(false, '失败');
+        } else if (evName === 'tool_call' || evName === 'tool_result' || evName === 'approval_request' || evName === 'approval_decision' || evName === 'note' || evName === 'compaction') {
+          if (typeof data.seq === 'number') state.lastSeq = Math.max(state.lastSeq, data.seq);
+          renderEvent({ type: evName, ...data });
+          if (evName === 'tool_result' && data.preview && String(data.preview).includes('计划已更新')) loadTodos();
+        }
+      }
+    }
+    if (streamBody) { flushStream(); finalizeTurn(); } // 流异常结束但已有内容
+    refreshSessions();
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      finalizeTurn();
+      setSessStatus(false, '已中断');
+    } else {
+      removeThinking();
+      appendNote(`发送失败：${e.message}`, true);
+      setSessStatus(false, '失败');
+    }
+  } finally {
+    if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; }
+    state.sending = false;
+    state.abortCtl = null;
+    btn.textContent = '➤';
+    btn.classList.remove('stop');
+    btn.disabled = false;
+    btn.title = '发送';
+    input.focus();
+    scrollBottom();
+    pollEvents(); // 兜底补齐（lastSeq 已同步，不重复渲染）
+  }
+}
+
+/** ■ 停止：本地断开等待 + 通知内核中止上游生成 */
+function abortTurn() {
+  if (state.abortCtl) state.abortCtl.abort();
+  if (state.sessionId) {
+    api(`/api/sessions/${state.sessionId}/abort`, { method: 'POST' }).catch(() => {});
+  }
+}
+
+/* ---------------- 附件（文本内联 + 图片多模态分片） ---------------- */
+
+function renderAttachChips() {
+  const row = $('attachRow');
+  if (!state.pendingFiles.length) {
+    row.style.display = 'none';
+    row.innerHTML = '';
+    return;
+  }
+  row.style.display = 'flex';
+  row.innerHTML = '';
+  for (let i = 0; i < state.pendingFiles.length; i++) {
+    const f = state.pendingFiles[i];
+    const chip = document.createElement('span');
+    chip.className = 'attach-chip';
+    chip.innerHTML =
+      (f.kind === 'image' ? `<img src="${f.dataUrl}" alt="" />` : '<span>📄</span>') +
+      `<span class="nm">${esc(f.name)}</span>` +
+      '<button class="rm" type="button">✕</button>';
+    chip.querySelector('.rm').onclick = () => {
+      state.pendingFiles.splice(i, 1);
+      renderAttachChips();
+    };
+    row.appendChild(chip);
+  }
+}
+
+function handleFiles(files) {
+  for (const file of files) {
+    if (file.type && file.type.startsWith('image/')) {
+      if (file.size > 6 * 1024 * 1024) { alert(`图片过大（>6MB）：${file.name}`); continue; }
+      const rd = new FileReader();
+      rd.onload = () => {
+        state.pendingFiles.push({ kind: 'image', name: file.name, dataUrl: String(rd.result), mime: file.type });
+        renderAttachChips();
+      };
+      rd.readAsDataURL(file);
+    } else if (file.size <= 200 * 1024 && (/\.(md|txt|json|csv|log|ya?ml|xml|html?|css|js|mjs|cjs|ts|tsx|jsx|py|java|c|cpp|h|go|rs|sql|sh|bat|ps1|toml|ini|cfg)$/i.test(file.name) || (file.type && file.type.startsWith('text/')))) {
+      const rd = new FileReader();
+      rd.onload = () => {
+        state.pendingFiles.push({ kind: 'text', name: file.name, text: String(rd.result) });
+        renderAttachChips();
+      };
+      rd.readAsText(file);
+    } else {
+      alert(`暂不支持该附件（仅文本/代码 ≤200KB 与图片 ≤6MB）：${file.name}`);
+    }
+  }
+}
+
+/** 组装发送内容：文本附件内联；图片上传 + 多模态分片；返回 {text, parts, attachments} */
+async function buildPayload(text) {
+  let fullText = text;
+  const parts = [];
+  const uploadedPaths = [];
+  for (const f of state.pendingFiles) {
+    if (f.kind === 'text') {
+      fullText += `\n\n[附件 ${f.name}]\n\`\`\`\n${f.text}\n\`\`\``;
+      const up = await api('/api/upload', { method: 'POST', body: JSON.stringify({ name: f.name, base64: btoa(unescape(encodeURIComponent(f.text))), mime: 'text/plain' }) }).catch(() => null);
+      if (up) uploadedPaths.push(up.path);
+    } else {
+      const up = await api('/api/upload', { method: 'POST', body: JSON.stringify({ name: f.name, base64: String(f.dataUrl).split(',')[1] || '', mime: f.mime }) }).catch(() => null);
+      if (up) uploadedPaths.push(up.path);
+      parts.push({ type: 'image_url', image_url: { url: f.dataUrl } });
+    }
+  }
+  if (uploadedPaths.length) {
+    fullText += `\n\n（附件已存工作区：${uploadedPaths.join('、')}）`;
+  }
+  return { text: fullText, parts, attachments: uploadedPaths };
+}
+
+/* ---- 设置页：模型端点 / API Key（零落盘）/ 无人值守 / 关于 ---- */
+
+function renderSettingsPage() {
+  const stream = $('stream');
+  stream.innerHTML = '';
+  const s = state.serverState || {};
+
+  const modelCard = pageCard('模型接入', '在线生效并持久化（apiKey 除外：仅本次运行，零落盘）');
+  const body = modelCard.querySelector('.pc-body');
+  body.innerHTML =
+    `<div class="form-row"><label>端点 baseUrl</label><input id="setBaseUrl" value="${esc(s.baseUrl || '')}" placeholder="http://127.0.0.1:8081/v1" /></div>` +
+    `<div class="form-row"><label>模型名 model</label><input id="setModel" value="${esc(s.model || '')}" placeholder="qwen-local" /></div>` +
+    `<div class="form-row"><label>API Key</label><input id="setKey" type="password" placeholder="本地端点可留空；仅本次运行有效，不写盘" /></div>` +
+    `<div class="form-row"><label>无人值守</label><label class="switch"><input type="checkbox" id="setAuto" ${s.autoApprove ? 'checked' : ''} /><span>写操作自动放行（不再弹审批卡）</span></label></div>` +
+    `<div class="ne-foot"><button class="pbtn accent" id="setSave">保存设置</button></div>`;
+  stream.appendChild(modelCard);
+
+  // 主题色（对照智作的个性化外观）
+  const themeCard = pageCard('主题色', '界面强调色，立即生效并记住选择');
+  const tBody = themeCard.querySelector('.pc-body');
+  const current = loadTheme();
+  const swatches = document.createElement('div');
+  swatches.className = 'swatches';
+  for (const t of THEME_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch' + (t.value.toLowerCase() === String(current).toLowerCase() ? ' picked' : '');
+    b.style.setProperty('--sw', t.value);
+    b.title = t.name;
+    b.innerHTML = `<span class="dot"></span><span class="nm">${esc(t.name)}</span>`;
+    b.onclick = () => {
+      applyTheme(t.value);
+      saveTheme(t.value);
+      for (const o of swatches.querySelectorAll('.swatch')) o.classList.toggle('picked', o === b);
+    };
+    swatches.appendChild(b);
+  }
+  tBody.appendChild(swatches);
+  stream.appendChild(themeCard);
+  // 视觉（多模态）端点：带图请求自动路由到它
+  const visionCard = pageCard('视觉端点（多模态）', '配置后带图请求自动走这里；端点需支持 OpenAI 图片输入（如 llama.cpp + mmproj）');
+  const vBody = visionCard.querySelector('.pc-body');
+  vBody.innerHTML =
+    `<div class="form-row"><label>视觉端点 baseUrl</label><input id="setVisUrl" value="${esc(s.vision?.baseUrl || '')}" placeholder="http://127.0.0.1:8082/v1（留空关闭）" /></div>` +
+    `<div class="form-row"><label>视觉模型名</label><input id="setVisModel" value="${esc(s.vision?.model || '')}" placeholder="smolvlm-local" /></div>`;
+  body.querySelector('#setSave').onclick = async () => {
+    try {
+      const payload = {
+        baseUrl: body.querySelector('#setBaseUrl').value.trim(),
+        model: body.querySelector('#setModel').value.trim(),
+        autoApprove: body.querySelector('#setAuto').checked,
+        vision: {
+          baseUrl: vBody.querySelector('#setVisUrl').value.trim(),
+          model: vBody.querySelector('#setVisModel').value.trim(),
+        },
+      };
+      const key = body.querySelector('#setKey').value;
+      if (key) payload.apiKey = key;
+      await api('/api/settings', { method: 'POST', body: JSON.stringify(payload) });
+      await loadState();
+      updatePlan();
+      const el = body.querySelector('#setSave');
+      el.textContent = '已保存 ✓';
+      setTimeout(() => { el.textContent = '保存设置'; }, 1500);
+    } catch (e) {
+      alert('保存失败：' + e.message);
+    }
+  };
+  stream.appendChild(visionCard);
+
+  const about = pageCard('关于', '');
+  about.querySelector('.pc-body').innerHTML =
+    `<div class="kv"><span>版本</span><span class="v">agent-platform v0.1.0（正式版）</span></div>` +
+    `<div class="kv"><span>内核</span><span class="v">Node ${esc(navigator.userAgent.includes('Chrome') ? '22 原生 TS' : '')} · 零 npm 依赖</span></div>` +
+    `<div class="kv"><span>工作区</span><span class="v">${esc(s.workspaceRoot || '…')}</span></div>` +
+    `<div class="kv"><span>数据</span><span class="v">data/（会话 JSONL · 凭据 DPAPI · 反馈）</span></div>`;
+  stream.appendChild(about);
+}
+
+/* ---- 反馈：提交 + 我的反馈列表 ---- */
+
+async function renderFeedbackPage() {
+  const stream = $('stream');
+  stream.innerHTML = '';
+
+  const form = pageCard('问题反馈', '反馈保存在本地 data/feedback.jsonl');
+  form.querySelector('.pc-body').innerHTML =
+    `<textarea id="fbText" placeholder="遇到的问题 / 想要的功能…（Ctrl+Enter 提交）"></textarea>` +
+    `<div class="ne-foot"><button class="pbtn accent" id="fbSend">提交反馈</button></div>`;
+  stream.appendChild(form);
+  const sendFb = async () => {
+    const tx = form.querySelector('#fbText');
+    if (!tx.value.trim()) return;
+    try {
+      await api('/api/feedback', { method: 'POST', body: JSON.stringify({ content: tx.value.trim() }) });
+      tx.value = '';
+      renderFeedbackPage();
+    } catch (e) {
+      alert('提交失败：' + e.message);
+    }
+  };
+  form.querySelector('#fbSend').onclick = sendFb;
+  form.querySelector('#fbText').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.ctrlKey) sendFb();
+  });
+
+  const listCard = pageCard('我的反馈', '');
+  const body = listCard.querySelector('.pc-body');
+  body.innerHTML = '<div class="pc-empty">加载中…</div>';
+  stream.appendChild(listCard);
+  try {
+    const { items } = await api('/api/feedback');
+    body.innerHTML = items.length ? '' : '<div class="pc-empty">还没有反馈记录</div>';
+    for (const it of items) {
+      const row = document.createElement('div');
+      row.className = 'prow';
+      row.innerHTML =
+        `<span class="prow-t" style="white-space:normal">${esc(it.content)}</span>` +
+        `<span class="prow-time">${esc(new Date(it.ts).toLocaleString())}</span>`;
+      body.appendChild(row);
+    }
+  } catch (e) {
+    body.innerHTML = `<div class="pc-empty">读取失败：${esc(e.message)}</div>`;
+  }
+}
+
+/* ---- 左下角账号菜单（对照智作：设置/问题反馈/我的反馈/断开） ---- */
+
+function closeAccountMenu() {
+  const m = $('accMenu');
+  if (m) m.remove();
+}
+
+function openAccountMenu() {
+  closeAccountMenu();
+  const menu = document.createElement('div');
+  menu.id = 'accMenu';
+  const mk = (icon, label, shortcut, fn, cls) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = cls || '';
+    b.innerHTML = `<span class="mi">${icon}</span><span class="ml">${label}</span>` + (shortcut ? `<span class="ms">${shortcut}</span>` : '');
+    b.onclick = () => { closeAccountMenu(); fn(); };
+    menu.appendChild(b);
+  };
+  mk('⚙', '设置', 'Ctrl+,', () => switchView('settings'));
+  mk('❓', '问题反馈', '', () => switchView('feedback'));
+  mk('📋', '我的反馈', '', () => switchView('feedback'));
+  mk('⇥', '断开连接', '', () => {
+    try { sessionStorage.removeItem('myagentToken'); } catch { /* ignore */ }
+    location.reload();
+  }, 'danger');
+  const acct = $('account').getBoundingClientRect();
+  menu.style.left = '10px';
+  menu.style.bottom = (window.innerHeight - acct.top + 8) + 'px';
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', closeAccountMenu, { once: true }), 0);
+}
+
+/** 会话计划卡：读取 todo 工具的任务清单（对照智作「会话计划 1 进行中 · 4 待处理」） */
+async function loadTodos() {
+  try {
+    const d = await api(`/api/todos/${state.sessionId}`);
+    const items = d.items || [];
+    const done = items.filter((i) => i.status === 'completed').length;
+    const prog = items.filter((i) => i.status === 'in_progress').length;
+    $('planTx').textContent = items.length
+      ? `会话计划 ${prog ? `${prog} 进行中 · ` : ''}${items.length - done} 待处理 · 完成 ${done}/${items.length}`
+      : '就绪 · 等待任务';
+    $('planCard').title = items.map((i) => `${i.status === 'completed' ? '✓' : '○'} ${i.text}`).join('\n');
+  } catch {
+    /* 无会话或读取失败保持现状 */
+  }
+}
+
+/* ---------------- 输入框 ---------------- */
+
+function fitInput() {
+  const el = $('input');
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 190) + 'px';
+}
+
+/* ---------------- 启动 ---------------- */
+
+function showWelcomeStandalone() {
+  if (state.sessionId) return;
+  state.events = 0;
+  $('sessTitle').textContent = 'BugKiller';
+  $('stream').innerHTML = '';
+  $('send').disabled = false;
+  renderWelcome();
+}
+
+function boot() {
+  applyTheme(loadTheme());
+  state.groups = loadGroups();
+  state.collapsedGroups = loadSet('myagentGroupsCollapsed');
+  $('newSession').onclick = () => newSession(false);
+  $('send').onclick = () => (state.sending ? abortTurn() : send());
+  $('sessionSearch').addEventListener('input', refreshSessions);
+  $('archToggle').onclick = () => { state.showArchived = !state.showArchived; refreshSessions(); };
+  $('searchToggle').onclick = () => {
+    state.searchOpen = !state.searchOpen;
+    $('searchRow').style.display = state.searchOpen ? 'flex' : 'none';
+    if (state.searchOpen) $('sessionSearch').focus();
+    else { $('sessionSearch').value = ''; refreshSessions(); }
+  };
+  $('projFilter').onclick = openProjFilterMenu;
+  $('navProjects').onclick = () => switchView('projects');
+  $('navOffice').onclick = () => switchView('office');
+  $('navAgents').onclick = () => switchView('agents');
+  $('modelSel').onclick = () => {
+    const m = $('meta');
+    m.style.display = m.style.display === 'none' ? 'block' : 'none';
+   };
+  $('attachBtn').onclick = () => $('fileInput').click();
+  $('fileInput').onchange = (e) => {
+    handleFiles([...e.target.files]);
+    e.target.value = '';
+  };
+  // 拖拽上传：整窗拖文件进来即附件
+  const main = $('main');
+  main.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    $('composer').classList.add('drag-over');
+  });
+  main.addEventListener('dragleave', (e) => {
+    if (e.target === main) $('composer').classList.remove('drag-over');
+  });
+  main.addEventListener('drop', (e) => {
+    e.preventDefault();
+    $('composer').classList.remove('drag-over');
+    if (e.dataTransfer && e.dataTransfer.files.length) {
+      switchView('chat');
+      handleFiles([...e.dataTransfer.files]);
+    }
+  });
+  // 粘贴图片：Ctrl+V 剪贴板图片直接进附件
+  document.addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData?.items ?? [])]
+      .filter((it) => it.kind === 'file')
+      .map((it) => it.getAsFile())
+      .filter((f) => f && f.type && f.type.startsWith('image/'));
+    if (files.length) {
+      e.preventDefault();
+      handleFiles(files);
+    }
+  });
+  $('editCancel').onclick = () => {
+    const input = $('input');
+    input.value = '';
+    fitInput();
+    cancelEditing();
+  };
+  $('account').onclick = openAccountMenu;
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+      e.preventDefault();
+      switchView('settings');
+    }
+  });
+  for (const t of document.querySelectorAll('.tab')) t.onclick = () => switchTab(t.dataset.tab);
+  const input = $('input');
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  input.addEventListener('input', fitInput);
+  loadState();
+  refreshSessions();
+  showWelcomeStandalone();
+  setInterval(pollEvents, 900);
+  setInterval(refreshSessionsQuiet, 6000);
+  setInterval(loadState, 15000);
+  setInterval(() => { if (state.sessionId) loadTodos(); }, 3000);
+}
+
+if (!token) {
+  document.getElementById('stream').innerHTML =
+    '<div class="msg note err">缺少令牌：请使用服务启动时打印的完整地址打开本页。</div>';
+} else {
+  boot();
+}

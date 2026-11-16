@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "mode": "workspace-write",
+  "autoApprove": false,
+  "notes": "autoApprove=true 时写文件跳过交互审批（无人值守模式）。对应智作平台 autopilot 的 autoConfirm，本平台默认保守（false）。环境变量 MYAGENT_AUTO_APPROVE=1 可临时覆盖。"
+}

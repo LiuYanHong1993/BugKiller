@@ -1,0 +1,10 @@
+node_modules/
+data/
+*.log
+policy/*.local.json
+keys/
+dist/
+notes/
+*.zip
+
+client/agent-platform.exe

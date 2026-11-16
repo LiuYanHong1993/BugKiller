@@ -1,0 +1,18 @@
+{
+  "name": "agent-platform",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "serve": "node scripts/serve.js",
+    "desktop": "node scripts/desktop.js",
+    "package": "node scripts/package.mjs",
+    "test": "node --experimental-strip-types --no-warnings --test kernel/src/sessions/store.test.ts kernel/src/tools/registry.test.ts kernel/src/server/approvals.test.ts kernel/src/mcp/client.test.ts kernel/src/mcp/http.test.ts kernel/src/plugins/loader.test.ts kernel/src/sandbox/session.test.ts kernel/src/agent/loop.test.ts workflow/src/engine.test.ts workflow/src/tool-runner.test.ts workflow/src/docker-executor.test.ts apps/desktop/vault.test.ts apps/desktop/updater.test.ts apps/desktop/sidecar.test.ts deploy/src/plan.test.ts",
+    "sessions": "node scripts/dev.js --list",
+    "flow": "node --experimental-strip-types --no-warnings workflow/src/cli.ts"
+  }
+}

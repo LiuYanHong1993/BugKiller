@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "plugins": [
+    { "name": "example-echo", "entry": "example-echo/index.ts", "enabled": true },
+    { "name": "example-disabled", "entry": "nothing/index.ts", "enabled": false }
+  ]
+}

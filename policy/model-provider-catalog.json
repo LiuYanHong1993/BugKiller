@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "defaultPreset": "local-llamacpp",
+  "presets": {
+    "local-llamacpp": {
+      "protocol": "openai-chat",
+      "baseUrl": "http://127.0.0.1:8081/v1",
+      "model": "qwen-local",
+      "apiKeyEnv": "MYAGENT_API_KEY",
+      "usagePolicy": {
+        "unattendedAutomation": "allowed",
+        "note": "本地 llama.cpp 服务，数据不出本机"
+      }
+    },
+    "openai": {
+      "protocol": "openai-chat",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "gpt-4o-mini",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "usagePolicy": {
+        "unattendedAutomation": "review-required"
+      }
+    }
+  },
+  "notes": "凭据零落盘：这里只保存 apiKeyEnv 环境变量名，真实密钥运行时从环境读取，绝不写进本文件。"
+}

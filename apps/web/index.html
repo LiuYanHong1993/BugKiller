@@ -1,0 +1,96 @@
+﻿<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BugKiller</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <nav class="side-menu">
+        <button class="menu-item primary" id="newSession" title="新建会话">
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 3.5h11v8h-6l-3 2.5v-2.5h-2z" stroke-linejoin="round"/></svg>
+          <span>新建会话</span>
+        </button>
+        <button class="menu-item" id="navProjects" title="项目 / 产品管理">
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="2.5" width="10" height="12" rx="1.2"/><path d="M5.5 6h5M5.5 9h5M5.5 12h3" stroke-linecap="round"/></svg>
+          <span>项目 / 产品管理</span>
+        </button>
+        <button class="menu-item" id="navOffice" title="办公套件">
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.8l5.5 2.6v7.2L8 14.2 2.5 11.6V4.4z" stroke-linejoin="round"/><path d="M2.7 4.6L8 7.1l5.3-2.5M8 7.1v7" stroke-linecap="round"/></svg>
+          <span>办公套件</span>
+        </button>
+        <button class="menu-item" id="navAgents" title="云智能体">
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 2.2c2.6.6 4.2 2.4 4.3 5-1.4 1.3-3 1.9-4.8 1.9L6.4 11.7l-2.1-2.1L6.9 7c0-1.8.6-3.4 1.9-4.8z" stroke-linejoin="round"/><circle cx="10.6" cy="5.4" r="0.9"/><path d="M4.5 11.5L2.5 13.5" stroke-linecap="round"/></svg>
+          <span>云智能体</span>
+        </button>
+      </nav>
+      <div class="side-head">
+        <span>会话</span>
+        <span class="spacer"></span>
+        <button class="hicon" id="archToggle" title="显示/隐藏已归档">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="3.4" rx="1"/><path d="M3.5 6.4V12a1 1 0 001 1h7a1 1 0 001-1V6.4M6.5 9h3" stroke-linecap="round"/></svg>
+        </button>
+        <button class="hicon" id="searchToggle" title="搜索会话">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>
+        </button>
+        <button class="hchip" id="projFilter" title="按分组筛选">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3" width="11" height="2.4" rx="0.6"/><rect x="2.5" y="6.8" width="11" height="2.4" rx="0.6"/><rect x="2.5" y="10.6" width="11" height="2.4" rx="0.6"/></svg>
+          <span id="projFilterName">项目</span>
+          <span class="cv">▾</span>
+        </button>
+      </div>
+      <div class="side-search" id="searchRow" style="display:none">
+        <input id="sessionSearch" placeholder="搜索会话标题或 ID" />
+      </div>
+      <div id="sessionList"></div>
+      <button id="account" type="button" title="账号与设置">
+        <div class="avatar">本</div>
+        <div class="acc-tx"><div class="nm">本地账号</div><div class="sub">单机模式</div></div>
+        <span class="acc-toggle" title="收起">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 10l4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </button>
+      <div id="meta" class="meta" style="display:none"></div>
+    </aside>
+    <main id="main">
+      <header id="topbar">
+        <div id="sessTitle">BugKiller</div>
+      </header>
+      <div id="tabs">
+        <button class="tab active" data-tab="dialog">对话</button>
+        <button class="tab" data-tab="trace">轨迹</button>
+        <button class="tab" data-tab="ctx">上下文</button>
+      </div>
+      <div id="streamScroll"><div id="stream"></div></div>
+      <div id="composerWrap">
+        <div id="planCard"><span class="ic">📋</span><span id="planTx">就绪 · 等待任务</span></div>
+        <div id="editBanner" style="display:none">✎ 正在编辑历史消息 <button class="pbtn" id="editCancel" type="button">取消</button></div>
+        <div id="attachRow" style="display:none"></div>
+        <input type="file" id="fileInput" multiple style="display:none" />
+        <div id="composer">
+          <textarea id="input" rows="1" placeholder="继续追问，输入 / 调用命令…"></textarea>
+          <div class="composer-foot">
+            <button class="cbtn" id="attachBtn" title="附件（即将支持）">＋</button>
+            <button class="cbtn" id="permBadge" title="当前权限模式">权限 …</button>
+            <button class="model-sel" id="modelSel">… <span>▾</span></button>
+            <button id="send" disabled>➤</button>
+          </div>
+        </div>
+      </div>
+      <div id="statusbar">
+        <span><span class="v" id="sbRounds">0</span> 轮 <span class="v" id="sbSteps">0</span> 步</span>
+        <span class="sep"></span>
+        <span><span class="v" id="sbTokens">0</span> tok</span>
+        <span class="sep"></span>
+        <span><span class="v" id="sbSessions">0</span> 会话</span>
+        <span class="sep"></span>
+        <span id="sbInfo">BugKiller v0.1 · 本地内核</span>
+      </div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
