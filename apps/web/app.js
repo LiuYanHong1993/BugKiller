@@ -2005,16 +2005,19 @@ function markApprovalDecision(ev) {
 /* ---------------- 输入历史召回（↑ ↓ 键，最近 20 条） ---------------- */
 
 let inputHistIdx = -1;
+let memHist = []; // 内存历史（localStorage 被隔离/禁用时仍可用）
 
 function getInputHistory() {
-  try { return JSON.parse(localStorage.getItem('myagentInputHistory') || '[]') || []; } catch { return []; }
+  let ls = [];
+  try { ls = JSON.parse(localStorage.getItem('myagentInputHistory') || '[]') || []; } catch { }
+  return ls.length > memHist.length ? ls : memHist;
 }
 
 function pushInputHistory(text) {
+  if (memHist[memHist.length - 1] !== text) memHist.push(text);
+  while (memHist.length > 20) memHist.shift();
   try {
     const h = getInputHistory();
-    if (h[h.length - 1] !== text) h.push(text);
-    while (h.length > 20) h.shift();
     localStorage.setItem('myagentInputHistory', JSON.stringify(h));
   } catch { /* ignore */ }
   inputHistIdx = -1;
@@ -2026,6 +2029,7 @@ async function send() {
   if (!text || state.sending) return;
   if (state.tab !== 'dialog') switchTab('dialog'); // 发消息 = 回到对话视图
   pushInputHistory(text);
+  input.focus(); // 发送后焦点回输入框（连续对话 + ↑ 召回的前提）
   // 编辑重发：先截断历史（该消息起全部丢弃），再走正常流式发送
   if (state.editing) {
     try {
