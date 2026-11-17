@@ -2556,18 +2556,27 @@ function boot() {
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); runSlash(slash.items[slash.idx]); return; }
       if (e.key === 'Escape') { e.preventDefault(); slash.open = false; renderSlashPanel(); return; }
     }
-    // 输入历史召回：空输入 ↑ 回退最近发送记录；↓ 前进（终端习惯）
-    if (e.key === 'ArrowUp' && !e.shiftKey && !e.altKey && input.value === '' && !slash.open) {
-      const h = getInputHistory();
-      if (h.length) {
+    // 输入历史召回（终端习惯）：空输入 ↑ 进入浏览；浏览态中 ↑↓ 连续翻页；手动编辑退出浏览态
+    if (e.key === 'ArrowUp' && !e.shiftKey && !e.altKey && !slash.open) {
+      if (input.value === '') {
+        const h = getInputHistory();
+        if (h.length) {
+          e.preventDefault();
+          inputHistIdx = h.length - 1;
+          input.value = h[inputHistIdx];
+          input.setSelectionRange(input.value.length, input.value.length);
+          return;
+        }
+      } else if (inputHistIdx !== -1) {
         e.preventDefault();
-        inputHistIdx = inputHistIdx === -1 ? h.length - 1 : Math.max(0, inputHistIdx - 1);
+        const h = getInputHistory();
+        inputHistIdx = Math.max(0, inputHistIdx - 1);
         input.value = h[inputHistIdx];
         input.setSelectionRange(input.value.length, input.value.length);
         return;
       }
     }
-    if (e.key === 'ArrowDown' && !e.shiftKey && !e.altKey && inputHistIdx !== -1 && !slash.open) {
+    if (e.key === 'ArrowDown' && !e.shiftKey && !e.altKey && !slash.open && inputHistIdx !== -1) {
       e.preventDefault();
       const h = getInputHistory();
       if (inputHistIdx < h.length - 1) { inputHistIdx++; input.value = h[inputHistIdx]; }
@@ -2578,7 +2587,12 @@ function boot() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   });
   input.addEventListener('input', () => {
-    if ($('input').value === '') inputHistIdx = -1; // 手动清空 → 回到当前
+    const v = $('input').value;
+    if (inputHistIdx !== -1) {
+      const h = getInputHistory();
+      if (h[inputHistIdx] !== v) inputHistIdx = -1; // 手动编辑 → 退出历史浏览态
+    }
+    if (v === '') inputHistIdx = -1;
     slashOnInput();
     fitInput();
   });
