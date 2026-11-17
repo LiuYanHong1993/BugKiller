@@ -70,7 +70,8 @@ npm run package             # 产物：dist/agent-platform-<version>.zip
 
 下一版本计划中的功能细节（按优先级排序）：
 
-- [ ] **斜杠命令系统**：输入 / 弹出命令面板（/clear、/model、/export…），支持自动补全
+- [x] **斜杠命令系统**：输入 / 弹出命令面板（/clear、/export、/new、/model 等 11 个命令），↑↓ 选择、Enter 执行
+- [x] **会话导出**：导出 Markdown（回合 + 工具结果）与 JSONL 原始档（命令 /export、/export-json）
 - [ ] **会话导出**：导出 Markdown（回合 + 工具结果）与 JSONL 原始档
 - [ ] **审计视图**：审批决策时间线（工具 / 参数 / 结果），可按工具筛选
 - [ ] **全局热键唤起**：Alt+Space 显示/聚焦主窗口（托盘常驻已有）
