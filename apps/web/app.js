@@ -2002,11 +2002,30 @@ function markApprovalDecision(ev) {
 
 /* ---------------- 发送 / 停止 ---------------- */
 
+/* ---------------- 输入历史召回（↑ ↓ 键，最近 20 条） ---------------- */
+
+let inputHistIdx = -1;
+
+function getInputHistory() {
+  try { return JSON.parse(localStorage.getItem('myagentInputHistory') || '[]') || []; } catch { return []; }
+}
+
+function pushInputHistory(text) {
+  try {
+    const h = getInputHistory();
+    if (h[h.length - 1] !== text) h.push(text);
+    while (h.length > 20) h.shift();
+    localStorage.setItem('myagentInputHistory', JSON.stringify(h));
+  } catch { /* ignore */ }
+  inputHistIdx = -1;
+}
+
 async function send() {
   const input = $('input');
   const text = input.value.trim();
   if (!text || state.sending) return;
   if (state.tab !== 'dialog') switchTab('dialog'); // 发消息 = 回到对话视图
+  pushInputHistory(text);
   // 编辑重发：先截断历史（该消息起全部丢弃），再走正常流式发送
   if (state.editing) {
     try {
@@ -2533,9 +2552,32 @@ function boot() {
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); runSlash(slash.items[slash.idx]); return; }
       if (e.key === 'Escape') { e.preventDefault(); slash.open = false; renderSlashPanel(); return; }
     }
+    // 输入历史召回：空输入 ↑ 回退最近发送记录；↓ 前进（终端习惯）
+    if (e.key === 'ArrowUp' && !e.shiftKey && !e.altKey && input.value === '' && !slash.open) {
+      const h = getInputHistory();
+      if (h.length) {
+        e.preventDefault();
+        inputHistIdx = inputHistIdx === -1 ? h.length - 1 : Math.max(0, inputHistIdx - 1);
+        input.value = h[inputHistIdx];
+        input.setSelectionRange(input.value.length, input.value.length);
+        return;
+      }
+    }
+    if (e.key === 'ArrowDown' && !e.shiftKey && !e.altKey && inputHistIdx !== -1 && !slash.open) {
+      e.preventDefault();
+      const h = getInputHistory();
+      if (inputHistIdx < h.length - 1) { inputHistIdx++; input.value = h[inputHistIdx]; }
+      else { inputHistIdx = -1; input.value = ''; }
+      input.setSelectionRange(input.value.length, input.value.length);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   });
-  input.addEventListener('input', () => { slashOnInput(); fitInput(); });
+  input.addEventListener('input', () => {
+    if ($('input').value === '') inputHistIdx = -1; // 手动清空 → 回到当前
+    slashOnInput();
+    fitInput();
+  });
   loadState();
   refreshSessions();
   showWelcomeStandalone();
