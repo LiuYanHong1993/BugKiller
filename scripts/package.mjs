@@ -64,16 +64,16 @@ function copyTree(src, dest, opts = {}) {
 
 // ---- 2. 暂存目录（干净树：先清掉上次构建残留；stage data/ 是便携用户数据，先备份后还原） ----
 const dataBackup = join(distDir, '.data-backup');
-if (existsSync(dataBackup)) rmSync(dataBackup, { recursive: true, force: true });
+if (existsSync(dataBackup)) rmSync(dataBackup, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 if (existsSync(stageRoot)) {
   const prevData = join(stageRoot, 'data');
   if (existsSync(prevData)) {
-    rmSync(dataBackup, { recursive: true, force: true });
+    rmSync(dataBackup, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
     copyTree(prevData, dataBackup, { tolerant: true });
     // WebView2 浏览缓存：运行中的客户端会锁文件（EBUSY）→ 备份/还原都排除，客户端自动重建
     rmSync(join(dataBackup, 'webview2-profile'), { recursive: true, force: true });
   }
-  rmSync(stageRoot, { recursive: true, force: true });
+  rmSync(stageRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 }
 mkdirSync(stageRoot, { recursive: true });
 
@@ -201,6 +201,6 @@ console.log('[package] 安装：解压后运行 install.ps1（安装前自动验
 // ---- 8. 还原便携用户数据（会话/设置/todos —— zip 不含它们，但运行中的客户端需要） ----
 if (existsSync(dataBackup)) {
   copyTree(dataBackup, join(stageRoot, 'data'), { tolerant: true });
-  rmSync(dataBackup, { recursive: true, force: true });
+  rmSync(dataBackup, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
   console.log('[package] 便携用户数据已还原到 stage');
 }

@@ -49,8 +49,20 @@ namespace AgentPlatform
         [DllImport("user32.dll")]
         internal static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("user32.dll")]
+        internal static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+        [DllImport("user32.dll")]
+        internal static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+        [DllImport("user32.dll")]
+        internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
         internal const int WM_NCLBUTTONDOWN = 0xA1;
         internal const int HTCAPTION = 0x2;
+        internal const uint MOD_CONTROL = 0x2;
+        internal const uint MOD_ALT = 0x1;
+        internal const uint MOD_NOREPEAT = 0x4000;
 
         /** 活跃 WebView2 实例（object 持有，WEBVIEW2 构建内转型使用） */
         internal static object ActiveWv;
@@ -477,6 +489,8 @@ namespace AgentPlatform
         private const int CAP_H = 34;      // 自绘标题栏高度
 
         private const int WM_NCHITTEST = 0x84;
+        private const int WM_HOTKEY = 0x0312;
+        private const int HOTKEY_ID = 0xBEEF;
 
         public MainForm(ClientController owner)
         {
@@ -577,12 +591,48 @@ namespace AgentPlatform
         {
             base.OnHandleCreated(e);
             Program.ApplyDarkTitlebar(this);
+            // 全局热键 Ctrl+Alt+B：任意界面唤起/隐藏主窗口（Alt+Space 被 Windows 系统菜单保留）
+            try
+            {
+                bool ok = Program.RegisterHotKey(Handle, HOTKEY_ID, Program.MOD_CONTROL | Program.MOD_ALT | Program.MOD_NOREPEAT, 0x42);
+                ClientController.Log("全局热键 Ctrl+Alt+B 注册: " + (ok ? "成功" : "失败（可能被其他程序占用）"));
+            }
+            catch { }
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            try { Program.UnregisterHotKey(Handle, HOTKEY_ID); } catch { }
+            base.OnHandleDestroyed(e);
+        }
+
+        /** 热键行为：隐藏 → 显示聚焦；最小化 → 还原聚焦；前台 → 藏到托盘 */
+        private void ToggleFromHotkey()
+        {
+            if (!Visible)
+            {
+                Show();
+                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                Program.SetForegroundWindow(Handle);
+                Activate();
+            }
+            else if (WindowState == FormWindowState.Minimized)
+            {
+                WindowState = FormWindowState.Normal;
+                Program.SetForegroundWindow(Handle);
+                Activate();
+            }
+            else
+            {
+                Hide(); // 前台 → 藏到托盘（内核保持运行）
+            }
         }
 
         /// <summary>无边框窗口的边缘缩放（6px 热区）</summary>
         protected override void WndProc(ref Message m)
         {
             base.WndProc(ref m);
+            if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HOTKEY_ID) { ToggleFromHotkey(); return; }
             if (m.Msg == WM_NCHITTEST && (IntPtr)1 == m.Result && WindowState != FormWindowState.Maximized)
             {
                 int lp = m.LParam.ToInt32();
