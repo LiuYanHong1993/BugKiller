@@ -1,4 +1,4 @@
-﻿// agent-platform Web UI v3 —— 布局
+// agent-platform Web UI v3 —— 布局
 // 左对齐活动流 / 思考折叠行 / 紧凑工具行 / 对话-轨迹-上下文 Tab / 状态栏 / 权限徽章
 // 零依赖；API 层与 M2 一致
 
@@ -153,6 +153,29 @@ function truncate(s, n) {
   s = String(s ?? '');
   return s.length > n ? s.slice(0, n) + '…' : s;
 }
+
+/** 应用内确认弹窗（替代浏览器原生 confirm，深色 UI 一致） */
+function uiConfirm(message, opts = {}) {
+  return new Promise((resolve) => {
+    const mask = document.createElement('div');
+    mask.className = 'modal-mask';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    box.innerHTML =
+      `<div class="modal-title">${esc(opts.title ?? '确认操作')}</div>` +
+      `<div class="modal-msg">${esc(message)}</div>` +
+      `<div class="modal-ops"><button type="button" class="pbtn" data-x>取消</button>` +
+      `<button type="button" class="pbtn ${opts.danger ? 'danger' : 'accent'}" data-ok>${esc(opts.okText ?? '确定')}</button></div>`;
+    mask.appendChild(box);
+    document.body.appendChild(mask);
+    const close = (v) => { mask.remove(); resolve(v); };
+    box.querySelector('[data-ok]').onclick = () => close(true);
+    box.querySelector('[data-x]').onclick = () => close(false);
+    mask.onclick = (e) => { if (e.target === mask) close(false); };
+    box.querySelector('[data-ok]').focus();
+  });
+}
+
 function relTime(id) {
   const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-/.exec(id);
   if (!m) return '';
@@ -455,17 +478,23 @@ function bindListDropTarget(list) {
   });
 }
 
+const ICON_TRASH = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h10M6.2 4.5V3.2a1 1 0 011-1h1.6a1 1 0 011 1v1.3M4.8 4.5l.55 8.2a1 1 0 001 .93h3.3a1 1 0 001-.93l.55-8.2" stroke-linecap="round"/></svg>';
+const ICON_PIN = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.6 2.3l4.1 4.1-2.3.75-2.1 2.1-.5 2.2-4.25-4.25 2.2-.5 2.1-2.1.75-2.3z" stroke-linejoin="round"/><path d="M6.6 9.4L2.8 13.2" stroke-linecap="round"/></svg>';
+const ICON_DOTS = '<svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><circle cx="3" cy="8" r="1.25"/><circle cx="8" cy="8" r="1.25"/><circle cx="13" cy="8" r="1.25"/></svg>';
+
 function sessionItem(s) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'session-item' + (s.id === state.sessionId ? ' active' : '');
   btn.draggable = !s.archived; // 已归档视图不拖拽
+  const pinned = state.pinned.has(s.id);
   btn.innerHTML =
     `<div class="row1"><span class="dot"></span>` +
     `<span class="t">${esc(s.title || s.id)}</span>` +
     `<span class="quick">` +
-    `<button type="button" class="q" data-pin title="${state.pinned.has(s.id) ? '取消置顶' : '置顶会话'}">📌</button>` +
-    `<button type="button" class="q danger" data-del title="删除会话">🗑</button></span>` +
+    `<button type="button" class="q danger" data-del title="删除会话">${ICON_TRASH}</button>` +
+    `<button type="button" class="q ${pinned ? 'pinned' : ''}" data-pin title="${pinned ? '取消置顶' : '置顶会话'}">${ICON_PIN}</button>` +
+    `<button type="button" class="q" data-menu title="更多操作">${ICON_DOTS}</button></span>` +
     `<span class="time">${esc(relTime(s.id))}</span></div>`;
   btn.dragstart = null;
   btn.addEventListener('dragstart', (e) => {
@@ -474,10 +503,11 @@ function sessionItem(s) {
     btn.classList.add('dragging');
   });
   btn.addEventListener('dragend', () => btn.classList.remove('dragging'));
-  btn.onclick = (e) => {
+  btn.onclick = async (e) => {
     if (e.target.closest('[data-pin]')) { togglePin(s.id); return; }
+    if (e.target.closest('[data-menu]')) { openSessionMenu(e, s); return; }
     if (e.target.closest('[data-del]')) {
-      if (!confirm(`删除会话「${s.title || s.id}」？历史不可恢复。`)) return;
+      if (!(await uiConfirm(`删除会话「${s.title || s.id}」？历史不可恢复。`, { title: '删除会话', danger: true, okText: '删除' }))) return;
       api(`/api/sessions/${s.id}`, { method: 'DELETE' }).then(() => {
         if (state.sessionId === s.id) { state.sessionId = null; showWelcomeStandalone(); }
         refreshSessions();
@@ -558,7 +588,7 @@ function openSessionMenu(e, s) {
   });
   menu.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
   mk('删除会话…', async () => {
-    if (!confirm(`删除会话「${truncate(s.title || s.id, 20)}」？历史不可恢复。`)) return;
+    if (!(await uiConfirm(`删除会话「${truncate(s.title || s.id, 20)}」？历史不可恢复。`, { danger: true, okText: '删除' }))) return;
     await api(`/api/sessions/${s.id}`, { method: 'DELETE' }).catch((err) => appendNote(`删除失败：${err.message}`, true));
     if (state.sessionId === s.id) { state.sessionId = null; showWelcomeStandalone(); }
     refreshSessions();
@@ -698,8 +728,8 @@ async function renderProjectsPage() {
         saveGroups();
         renderProjectsPage();
       };
-      card.querySelector('[data-delgroup]').onclick = () => {
-        if (!confirm(`删除分组「${g}」？组内会话将移到未归属项目。`)) return;
+      card.querySelector('[data-delgroup]').onclick = async () => {
+        if (!(await uiConfirm(`删除分组「${g}」？组内会话将移到未归属项目。`, { danger: true, okText: '删除' }))) return;
         for (const [sid, grp] of Object.entries(state.groups)) if (grp === g) delete state.groups[sid];
         delete state.groups[`__group__${g}`];
         saveGroups();
@@ -711,7 +741,7 @@ async function renderProjectsPage() {
     }
     for (const b of card.querySelectorAll('[data-delsess]')) {
       b.onclick = async () => {
-        if (!confirm('删除该会话？历史不可恢复。')) return;
+        if (!(await uiConfirm('删除该会话？历史不可恢复。', { danger: true, okText: '删除' }))) return;
         await api(`/api/sessions/${b.dataset.delsess}`, { method: 'DELETE' }).catch((e) => appendNote(`删除失败：${e.message}`, true));
         if (state.sessionId === b.dataset.delsess) { state.sessionId = null; }
         renderProjectsPage();
@@ -910,8 +940,8 @@ function expertCard(a, tag, installedMode) {
     startAgent(a);
   };
   const del = card.querySelector('[data-del]');
-  if (del) del.onclick = () => {
-    if (!confirm(`删除自定义专家「${a.name}」？`)) return;
+  if (del) del.onclick = async () => {
+    if (!(await uiConfirm(`删除自定义专家「${a.name}」？`, { danger: true, okText: '删除' }))) return;
     saveCustomAgents(loadCustomAgents().filter((x) => x.id !== a.id));
     renderOfficePage();
   };
@@ -983,7 +1013,7 @@ function renderOfficeKnowledge(listWrap) {
         openNoteEditor(noteWrap, 'notes/' + f.name, dd ? dd.content : '');
       };
       row.querySelector('[data-deln]').onclick = async () => {
-        if (!confirm(`删除笔记 ${f.name}？`)) return;
+        if (!(await uiConfirm(`删除笔记 ${f.name}？`, { danger: true, okText: '删除' }))) return;
         await api(`/api/note?path=${encodeURIComponent('notes/' + f.name)}`, { method: 'DELETE' });
         renderOfficePage();
       };
