@@ -254,6 +254,22 @@ button.session-item {
 .modal-ops { display: flex; justify-content: flex-end; gap: 8px; }
 .modal-ops .pbtn { padding: 5px 18px; }
 
+/* 审计视图 */
+.audit-day {
+  color: var(--muted); font-size: 11px; font-weight: 600;
+  padding: 10px 2px 4px; letter-spacing: 0.5px;
+}
+.audit-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px; border-radius: 8px; font-size: 12px; min-width: 0;
+}
+.audit-row:hover { background: var(--panel2); }
+.audit-row .a-time { color: var(--muted); font-family: var(--mono); flex: none; }
+.audit-row .a-tool { color: var(--text); font-family: var(--mono); flex: none; min-width: 90px; }
+.audit-row .a-detail { flex: 1; min-width: 0; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.audit-row .a-sess { color: var(--muted); flex: none; }
+.audit-row .badge.b-rej { color: #ff9b9b; background: rgba(224, 82, 82, 0.14); }
+
 #account {
   display: flex; align-items: center; gap: 9px;
   border-top: 1px solid var(--line-soft); padding: 10px 6px 2px; margin-top: 2px;

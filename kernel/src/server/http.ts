@@ -517,6 +517,32 @@ export function startServer(deps: ServerDeps): Promise<string> {
         });
       }
 
+      // ---- 审计：跨会话审批请求/决策汇总（按时间倒序） ----
+      if (pathname === '/api/audit' && req.method === 'GET') {
+        const summaries = await deps.store.list().catch(() => []);
+        const rows: Array<{ ts: string; sid: string; title: string; kind: 'request' | 'decision'; tool: string; detail: string }> = [];
+        for (const s of summaries.slice(0, 80)) {
+          let text = '';
+          try { text = await readFile(s.file, 'utf8'); } catch { continue; }
+          const lines = text.split('\n').filter((l) => l.trim());
+          const pend = new Map<string, string>();
+          for (const l of lines) {
+            let e: Record<string, unknown>;
+            try { e = JSON.parse(l) as Record<string, unknown>; } catch { continue; }
+            const rid = String(e.requestId ?? '');
+            if (e.type === 'approval_request') {
+              pend.set(rid, String(e.tool ?? ''));
+              rows.push({ ts: String(e.ts ?? ''), sid: s.id, title: s.title, kind: 'request', tool: String(e.tool ?? ''), detail: String(e.detail ?? '') });
+            } else if (e.type === 'approval_decision') {
+              rows.push({ ts: String(e.ts ?? ''), sid: s.id, title: s.title, kind: 'decision', tool: pend.get(rid) ?? '', detail: e.approved ? '允许' : '拒绝' });
+            }
+          }
+          if (rows.length >= 300) break;
+        }
+        rows.sort((a, b) => (a.ts < b.ts ? 1 : -1));
+        return json(res, 200, { rows: rows.slice(0, 300) });
+      }
+
       // ---- 会话计划（todo 工具的存储） ----
       m = pathname.match(/^\/api\/todos\/([A-Za-z0-9-]+)$/);
       if (m && req.method === 'GET') {

@@ -649,12 +649,13 @@ function switchView(view) {
     else if (view === 'agents') renderAgentsPage();
     else if (view === 'settings') renderSettingsPage();
     else if (view === 'feedback') renderFeedbackPage();
+    else if (view === 'audit') renderAuditPage();
   } else {
     reloadDialog();
   }
 }
 
-const VIEW_TITLES = { chat: 'BugKiller', projects: '项目 / 产品管理', office: '办公套件', agents: '云智能体', settings: '设置', feedback: '问题反馈' };
+const VIEW_TITLES = { chat: 'BugKiller', projects: '项目 / 产品管理', office: '办公套件', agents: '云智能体', settings: '设置', feedback: '问题反馈', audit: '审计日志' };
 
 function viewNavId(view) {
   return { projects: 'navProjects', office: 'navOffice', agents: 'navAgents' }[view] ?? '';
@@ -1019,6 +1020,83 @@ function renderOfficeKnowledge(listWrap) {
       };
     }
   }).catch(() => {});
+}
+
+/* ---------------- 审计视图（跨会话审批请求/决策时间线） ---------------- */
+
+const auditOpts = { tool: '', kind: '' };
+
+async function renderAuditPage() {
+  const stream = $('stream');
+  stream.innerHTML = '<div class="msg note">加载审计记录…</div>';
+  let d;
+  try {
+    d = await api('/api/audit');
+  } catch (e) {
+    stream.innerHTML = `<div class="msg note err">读取失败：${esc(e.message)}</div>`;
+    return;
+  }
+  stream.innerHTML = '';
+
+  const head = document.createElement('div');
+  head.className = 'office-head';
+  head.innerHTML =
+    `<h1 class="office-title">审计日志</h1>` +
+    `<div class="office-sub">全部会话的审批请求与决策记录（工具执行前的守卫留痕），按时间倒序。</div>`;
+  stream.appendChild(head);
+
+  const ctrl = document.createElement('div');
+  ctrl.className = 'trace-ctrl';
+  ctrl.innerHTML =
+    `<button type="button" class="tbtn ${auditOpts.kind === 'decision' ? 'on' : ''}" data-k="decision">${auditOpts.kind === 'decision' ? '只看决策' : '全部记录'}</button>` +
+    `<input id="auditTool" placeholder="按工具名筛选…" value="${esc(auditOpts.tool)}" />`;
+  stream.appendChild(ctrl);
+  ctrl.querySelector('[data-k]').onclick = () => {
+    auditOpts.kind = auditOpts.kind === 'decision' ? '' : 'decision';
+    renderAuditPage();
+  };
+  ctrl.querySelector('#auditTool').addEventListener('input', (e) => {
+    auditOpts.tool = e.target.value.trim().toLowerCase();
+    renderAuditPage();
+    const inp = $('auditTool');
+    inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
+  });
+
+  const rows = d.rows.filter((r) =>
+    (!auditOpts.kind || r.kind === auditOpts.kind) &&
+    (!auditOpts.tool || r.tool.toLowerCase().includes(auditOpts.tool)));
+
+  const card = document.createElement('div');
+  card.className = 'office-section';
+  card.innerHTML = `<div class="office-sec-t">记录 <span class="dim">${rows.length} 条${auditOpts.tool || auditOpts.kind ? '（已筛选）' : ''}</span></div>`;
+  stream.appendChild(card);
+
+  if (!rows.length) {
+    card.innerHTML += '<div class="pc-empty">暂无审批记录 —— 在工作区权限模式下执行命令/写文件会产生审批留痕。</div>';
+    return;
+  }
+  let prevDay = '';
+  for (const r of rows) {
+    const day = (r.ts || '').slice(0, 10);
+    if (day && day !== prevDay) {
+      const dh = document.createElement('div');
+      dh.className = 'audit-day';
+      dh.textContent = day;
+      card.appendChild(dh);
+      prevDay = day;
+    }
+    const row = document.createElement('div');
+    row.className = 'audit-row';
+    const isReq = r.kind === 'request';
+    row.innerHTML =
+      `<span class="a-time">${esc((r.ts || '').slice(11, 19))}</span>` +
+      `<span class="badge ${isReq ? 'b-tool' : (r.detail === '允许' ? 'b-req' : 'b-rej')}">${isReq ? '请求' : esc(r.detail)}</span>` +
+      `<span class="a-tool">${esc(r.tool || '—')}</span>` +
+      `<span class="a-detail">${esc(truncate(r.detail, 90))}</span>` +
+      `<span class="a-sess">${esc(truncate(r.title || r.sid, 14))}</span>`;
+    card.appendChild(row);
+  }
 }
 
 /* ---- 云智能体：智能体卡片，一键开场 ---- */
@@ -2195,6 +2273,12 @@ function renderSettingsPage() {
     `<div class="ne-foot"><button class="pbtn accent" id="setSave">保存设置</button></div>`;
   stream.appendChild(modelCard);
 
+  // 审计入口
+  const auditCard = pageCard('审计日志', '全部会话的审批请求与决策留痕（工具执行守卫）',
+    '<button class="pbtn accent" id="auditOpen">打开审计日志</button>');
+  stream.appendChild(auditCard);
+  auditCard.querySelector('#auditOpen').onclick = () => switchView('audit');
+
   // 主题色
   const themeCard = pageCard('主题色', '界面强调色，立即生效并记住选择');
   const tBody = themeCard.querySelector('.pc-body');
@@ -2474,6 +2558,7 @@ const SLASH_COMMANDS = [
   { cmd: '/office', desc: '打开办公套件页', run: () => switchView('office') },
   { cmd: '/projects', desc: '打开项目 / 产品管理页', run: () => switchView('projects') },
   { cmd: '/pin', desc: '置顶 / 取消置顶当前会话', run: () => { if (state.sessionId) togglePin(state.sessionId); else appendNote('当前无会话', true); } },
+  { cmd: '/audit', desc: '打开审计日志（审批决策时间线）', run: () => switchView('audit') },
   { cmd: '/help', desc: '列出全部命令', run: () => appendNote('可用命令：\n' + SLASH_COMMANDS.map((c) => `${c.cmd}  ${c.desc}`).join('\n')) },
 ];
 
