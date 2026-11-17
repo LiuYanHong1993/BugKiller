@@ -29,7 +29,7 @@ async function main(): Promise<void> {
 
   // 配置层叠：catalog（含 env 覆盖）→ data/kernel-settings.json（设置页持久层，最后生效）
   // 注意：apiKey 永不进该文件（零落盘原则），仅经 IPC/API 进内存
-  let settings: { baseUrl?: string; model?: string; autoApprove?: boolean; vision?: { baseUrl?: string; model?: string } } = {};
+  let settings: { baseUrl?: string; model?: string; autoApprove?: boolean; vision?: { baseUrl?: string; model?: string }; params?: { temperature?: number; maxTokens?: number } } = {};
   try {
     settings = JSON.parse(readFileSync(resolve(workspaceRoot, 'data', 'kernel-settings.json'), 'utf8'));
   } catch {
@@ -95,6 +95,7 @@ async function main(): Promise<void> {
     broker,
     mcpSummary,
     vision: visionPreset,
+    params: settings.params ?? null,
     log: (l) => console.log(l),
   });
 

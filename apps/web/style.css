@@ -46,6 +46,17 @@ button:focus, button:focus-visible { outline: none; }
 #slashPanel .sitem b { color: var(--accent); font-family: var(--mono); font-weight: 600; flex: none; width: 110px; }
 #slashPanel .sitem span { color: var(--muted); font-size: 11.5px; }
 
+/* 模型参数浮层（⚙ / /params） */
+#paramsPanel {
+  position: absolute; bottom: calc(100% + 8px); right: 12px;
+  width: 360px; max-width: calc(100vw - 48px);
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px 16px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); z-index: 60;
+}
+#paramsPanel input[type="range"] { accent-color: var(--accent); }
+#paramsPanel .form-row input[type="number"] { width: 100%; }
+
 body {
   margin: 0;
   background: var(--bg);

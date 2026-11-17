@@ -180,7 +180,7 @@ async function compactIfNeeded(
 export async function runTurnStream(
   userText: string,
   history: ChatMessage[],
-  deps: LoopDeps & { signal?: AbortSignal; maxTokens?: number; parts?: ChatMessage['content']; attachments?: string[] },
+  deps: LoopDeps & { signal?: AbortSignal; maxTokens?: number; temperature?: number; parts?: ChatMessage['content']; attachments?: string[] },
   emit: StreamEmit,
 ): Promise<TurnResult> {
   const { provider, registry, ctx } = deps;
@@ -225,7 +225,7 @@ export async function runTurnStream(
     let res;
     try {
       res = await provider.chatStream(
-        { messages, tools: registry.toSpecs(), maxTokens: deps.maxTokens },
+        { messages, tools: registry.toSpecs(), maxTokens: deps.maxTokens, temperature: deps.temperature },
         {
           signal: deps.signal,
           onDelta: (t) => {

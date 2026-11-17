@@ -35,6 +35,8 @@ export interface ServerDeps {
   mcpSummary: string;
   /** 视觉（多模态）预设：带图请求自动路由（main.ts 从 kernel-settings.json 解析） */
   vision?: ModelPreset | null;
+  /** 模型参数（temperature / maxTokens）：设置页在线调节，runTurn 时注入每次请求 */
+  params?: { temperature?: number; maxTokens?: number } | null;
   log: (line: string) => void;
 }
 
@@ -58,6 +60,10 @@ export function startServer(deps: ServerDeps): Promise<string> {
   const runtime = {
     autoApprove: deps.policy.autoApprove === true,
     vision: deps.vision ? { baseUrl: deps.vision.baseUrl, model: deps.vision.model } : null,
+    params: {
+      temperature: typeof deps.params?.temperature === 'number' ? deps.params.temperature : 0.4,
+      maxTokens: typeof deps.params?.maxTokens === 'number' && deps.params.maxTokens > 0 ? deps.params.maxTokens : null,
+    },
   };
   deps.provider.setVision(deps.vision ?? null);
   // SQLite 投影（懒加载；无 --experimental-sqlite 时 available=false 优雅降级）
@@ -101,7 +107,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
     await writeFile(
       resolve(dir, 'kernel-settings.json'),
       JSON.stringify(
-        { baseUrl: cfg.baseUrl, model: cfg.model, autoApprove: runtime.autoApprove, vision: runtime.vision },
+        { baseUrl: cfg.baseUrl, model: cfg.model, autoApprove: runtime.autoApprove, vision: runtime.vision, params: runtime.params },
         null,
         2,
       ),
@@ -153,6 +159,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
           mode: deps.policy.mode,
           autoApprove: runtime.autoApprove,
           vision: runtime.vision,
+          params: runtime.params,
           workspaceRoot: deps.workspaceRoot,
           tools: deps.registry.names(),
           mcp: deps.mcpSummary,
@@ -167,6 +174,12 @@ export function startServer(deps: ServerDeps): Promise<string> {
           model: typeof body?.model === 'string' && body.model ? String(body.model) : undefined,
         });
         if (typeof body?.autoApprove === 'boolean') runtime.autoApprove = body.autoApprove;
+        // 模型参数（temperature 0-1 / maxTokens 正整数或 null=默认）
+        if (body?.params && typeof body.params === 'object') {
+          const p = body.params as { temperature?: unknown; maxTokens?: unknown };
+          if (typeof p.temperature === 'number' && p.temperature >= 0 && p.temperature <= 1) runtime.params.temperature = p.temperature;
+          runtime.params.maxTokens = typeof p.maxTokens === 'number' && p.maxTokens > 0 ? p.maxTokens : null;
+        }
         // 视觉端点（多模态）：{baseUrl, model}；清空 baseUrl 即关闭
         if (body?.vision && typeof body.vision === 'object') {
           const v = body.vision as { baseUrl?: string; model?: string };
@@ -295,6 +308,8 @@ export function startServer(deps: ServerDeps): Promise<string> {
               sessionId,
               signal: ac.signal,
               maxHistoryMessages: 40,
+              temperature: runtime.params.temperature,
+              maxTokens: typeof runtime.params.maxTokens === 'number' && runtime.params.maxTokens > 0 ? runtime.params.maxTokens : undefined,
               ...(parts && parts.length ? { parts: parts as unknown as import('../llm/types.ts').ContentPart[] } : {}),
               ...(attachments && attachments.length ? { attachments } : {}),
             },

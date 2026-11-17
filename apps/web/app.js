@@ -1022,6 +1022,41 @@ function renderOfficeKnowledge(listWrap) {
   }).catch(() => {});
 }
 
+/* ---------------- 模型参数浮层（⚙ / /params） ---------------- */
+
+async function toggleParamsPanel() {
+  const old = $('paramsPanel');
+  if (old) { old.remove(); return; }
+  const s = state.serverState || {};
+  const p = s.params || {};
+  const panel = document.createElement('div');
+  panel.id = 'paramsPanel';
+  panel.innerHTML =
+    `<div class="modal-title" style="margin-bottom:10px">模型参数</div>` +
+    `<div class="form-row"><label>temperature（随机性，0–1）</label>` +
+    `<div style="display:flex;align-items:center;gap:10px"><input type="range" id="ppTemp" min="0" max="1" step="0.1" value="${typeof p.temperature === 'number' ? p.temperature : 0.4}" style="flex:1" /><b id="ppTempV" style="font-family:var(--mono);min-width:32px">${typeof p.temperature === 'number' ? p.temperature : 0.4}</b></div></div>` +
+    `<div class="form-row"><label>max tokens（留空 = 模型默认）</label><input id="ppMax" type="number" min="1" step="128" placeholder="默认" value="${typeof p.maxTokens === 'number' ? p.maxTokens : ''}" /></div>` +
+    `<div class="ne-foot"><button class="pbtn" id="ppCancel">取消</button><button class="pbtn accent" id="ppSave">保存并生效</button></div>`;
+  $('composerWrap').appendChild(panel);
+  const temp = panel.querySelector('#ppTemp');
+  temp.addEventListener('input', () => { panel.querySelector('#ppTempV').textContent = temp.value; });
+  panel.querySelector('#ppCancel').onclick = () => panel.remove();
+  panel.querySelector('#ppSave').onclick = async () => {
+    const maxV = panel.querySelector('#ppMax').value.trim();
+    try {
+      await api('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify({ params: { temperature: Number(temp.value), maxTokens: maxV ? Number(maxV) : null } }),
+      });
+      panel.remove();
+      appendNote('🎛 模型参数已生效');
+      loadState();
+    } catch (e) {
+      alert('保存失败：' + e.message);
+    }
+  };
+}
+
 /* ---------------- 审计视图（跨会话审批请求/决策时间线） ---------------- */
 
 const auditOpts = { tool: '', kind: '' };
@@ -2501,6 +2536,7 @@ function boot() {
     const m = $('meta');
     m.style.display = m.style.display === 'none' ? 'block' : 'none';
    };
+  $('paramsBtn').onclick = () => toggleParamsPanel();
   $('attachBtn').onclick = () => $('fileInput').click();
   $('fileInput').onchange = (e) => {
     handleFiles([...e.target.files]);
@@ -2619,6 +2655,7 @@ const SLASH_COMMANDS = [
   { cmd: '/projects', desc: '打开项目 / 产品管理页', run: () => switchView('projects') },
   { cmd: '/pin', desc: '置顶 / 取消置顶当前会话', run: () => { if (state.sessionId) togglePin(state.sessionId); else appendNote('当前无会话', true); } },
   { cmd: '/audit', desc: '打开审计日志（审批决策时间线）', run: () => switchView('audit') },
+  { cmd: '/params', desc: '调节模型参数（temperature / max tokens）', run: () => toggleParamsPanel() },
   { cmd: '/help', desc: '列出全部命令', run: () => appendNote('可用命令：\n' + SLASH_COMMANDS.map((c) => `${c.cmd}  ${c.desc}`).join('\n')) },
 ];
 
