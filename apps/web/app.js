@@ -2443,9 +2443,15 @@ function boot() {
   for (const t of document.querySelectorAll('.tab')) t.onclick = () => switchTab(t.dataset.tab);
   const input = $('input');
   input.addEventListener('keydown', (e) => {
+    if (slash.open && slash.items.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); slash.idx = (slash.idx + 1) % slash.items.length; renderSlashPanel(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); slash.idx = (slash.idx - 1 + slash.items.length) % slash.items.length; renderSlashPanel(); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); runSlash(slash.items[slash.idx]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); slash.open = false; renderSlashPanel(); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   });
-  input.addEventListener('input', fitInput);
+  input.addEventListener('input', () => { slashOnInput(); fitInput(); });
   loadState();
   refreshSessions();
   showWelcomeStandalone();
@@ -2453,6 +2459,99 @@ function boot() {
   setInterval(refreshSessionsQuiet, 6000);
   setInterval(loadState, 15000);
   setInterval(() => { if (state.sessionId) loadTodos(); }, 3000);
+}
+
+/* ---------------- 斜杠命令系统（/ 命令面板 + 自动补全） ---------------- */
+
+const SLASH_COMMANDS = [
+  { cmd: '/new', desc: '新建会话', run: () => newSession(true) },
+  { cmd: '/clear', desc: '刷新当前会话显示（重新加载事件流）', run: () => { if (state.sessionId) openSession(state.sessionId, state.sessionTitle); } },
+  { cmd: '/export', desc: '导出当前会话为 Markdown', run: () => exportSession('md') },
+  { cmd: '/export-json', desc: '导出当前会话为 JSONL 原始档', run: () => exportSession('json') },
+  { cmd: '/model', desc: '切换模型预设（打开选择器）', run: () => $('modelSel').click() },
+  { cmd: '/settings', desc: '打开设置页', run: () => switchView('settings') },
+  { cmd: '/agents', desc: '打开云智能体页', run: () => switchView('agents') },
+  { cmd: '/office', desc: '打开办公套件页', run: () => switchView('office') },
+  { cmd: '/projects', desc: '打开项目 / 产品管理页', run: () => switchView('projects') },
+  { cmd: '/pin', desc: '置顶 / 取消置顶当前会话', run: () => { if (state.sessionId) togglePin(state.sessionId); else appendNote('当前无会话', true); } },
+  { cmd: '/help', desc: '列出全部命令', run: () => appendNote('可用命令：\n' + SLASH_COMMANDS.map((c) => `${c.cmd}  ${c.desc}`).join('\n')) },
+];
+
+async function exportSession(format) {
+  if (!state.sessionId) { appendNote('当前无会话可导出', true); return; }
+  const data = await api(`/api/sessions/${state.sessionId}/events?since=0`);
+  const evs = data.events || [];
+  const title = state.sessionTitle || state.sessionId;
+  let content;
+  if (format === 'json') {
+    content = JSON.stringify(evs, null, 2);
+  } else {
+    const lines = [`# ${title}`, '', `> 导出于 ${new Date().toLocaleString()} · BugKiller`, ''];
+    for (const e of evs) {
+      if (e.type === 'session_start') continue;
+      const ts = e.ts ? new Date(e.ts).toLocaleString() : '';
+      if (e.type === 'user') lines.push(`## 🧑 用户（${ts}）`, '', String(e.text ?? ''), '');
+      else if (e.type === 'assistant') lines.push(`## 🤖 助手（${ts}）`, '', String(e.text ?? ''), '');
+      else if (e.type === 'tool_call') lines.push(`### 🔧 工具调用：${e.name}`, '', '```', truncate(e.arguments ?? '', 800), '```', '');
+      else if (e.type === 'tool_result') lines.push(`### ↳ 结果${e.ok ? '' : '（失败）'}`, '', '```', truncate(e.preview ?? '', 800), '```', '');
+      else if (e.type === 'note') lines.push(`> ${e.text ?? ''}`, '');
+      else if (e.type === 'compaction') lines.push(`> 📋 已压缩早期对话（${e.covered ?? '?'} 条）`, '');
+    }
+    content = lines.join('\n');
+  }
+  const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/markdown;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${title}.${format === 'json' ? 'json' : 'md'}`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  appendNote(`📤 已导出会话「${truncate(title, 20)}」为 ${format.toUpperCase()}`);
+}
+
+let slash = { open: false, items: [], idx: 0 };
+
+function slashList(kw) {
+  const q = kw.toLowerCase();
+  return SLASH_COMMANDS.filter((c) => c.cmd.toLowerCase().includes(q) || c.desc.toLowerCase().includes(q));
+}
+
+function renderSlashPanel() {
+  let p = $('slashPanel');
+  if (!slash.open || !slash.items.length) { if (p) p.remove(); return; }
+  if (!p) {
+    p = document.createElement('div');
+    p.id = 'slashPanel';
+    $('composerWrap').appendChild(p);
+  }
+  p.innerHTML = slash.items.map((c, i) =>
+    `<button type="button" class="sitem ${i === slash.idx ? 'active' : ''}" data-i="${i}"><b>${esc(c.cmd)}</b><span>${esc(c.desc)}</span></button>`).join('');
+  for (const b of p.querySelectorAll('.sitem')) {
+    b.onclick = () => runSlash(slash.items[+b.dataset.i]);
+  }
+  const act = p.querySelector('.sitem.active');
+  if (act) act.scrollIntoView({ block: 'nearest' });
+}
+
+function runSlash(c) {
+  slash.open = false;
+  renderSlashPanel();
+  const input = $('input');
+  input.value = '';
+  fitInput();
+  try { c.run(); } catch (e) { appendNote('命令执行失败：' + e.message, true); }
+}
+
+function slashOnInput() {
+  const v = $('input').value;
+  if (v.startsWith('/') && v.length <= 30 && !v.includes('\n')) {
+    slash.open = true;
+    slash.items = slashList(v.slice(1));
+    slash.idx = 0;
+    renderSlashPanel();
+  } else if (slash.open) {
+    slash.open = false;
+    renderSlashPanel();
+  }
 }
 
 if (!token) {

@@ -27,6 +27,25 @@ html, body { height: 100%; }
 :focus-visible { outline: none; }
 button:focus, button:focus-visible { outline: none; }
 
+/* 斜杠命令面板（输入 / 弹出，输入框上方浮层） */
+#composerWrap { position: relative; }
+#slashPanel {
+  position: absolute; bottom: calc(100% + 8px); left: 12px; right: 12px;
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 6px; max-height: 300px; overflow-y: auto;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); z-index: 60;
+}
+#slashPanel .sitem {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: transparent; border: 0; border-radius: 8px;
+  padding: 7px 12px; cursor: pointer; color: var(--text-dim); text-align: left;
+  font: 12.5px/1.5 inherit; font-family: inherit;
+}
+#slashPanel .sitem:hover { background: var(--panel3); }
+#slashPanel .sitem.active { background: var(--accent-soft); color: var(--text); }
+#slashPanel .sitem b { color: var(--accent); font-family: var(--mono); font-weight: 600; flex: none; width: 110px; }
+#slashPanel .sitem span { color: var(--muted); font-size: 11.5px; }
+
 body {
   margin: 0;
   background: var(--bg);
