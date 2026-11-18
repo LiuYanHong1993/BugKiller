@@ -729,6 +729,24 @@ button.session-item {
 .ec-ds { color: var(--muted); font-size: 12px; line-height: 1.6; min-height: 19px; word-break: break-word; }
 .ec-ops { margin-top: 9px; display: flex; align-items: center; gap: 7px; }
 .ec-ops .pbtn { padding: 3px 14px; }
+.ec-more {
+  margin-left: auto; background: transparent; border: 0;
+  color: var(--muted); cursor: pointer; padding: 2px 4px;
+  border-radius: 4px; display: inline-flex;
+}
+.ec-more:hover { color: var(--text); background: var(--panel3); }
+.expert-menu {
+  position: fixed; z-index: 120; min-width: 150px;
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 6px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.expert-menu button {
+  display: block; width: 100%; text-align: left;
+  background: transparent; border: 0; color: var(--text-dim);
+  padding: 7px 12px; border-radius: 6px; cursor: pointer;
+  font: 12.5px/1.5 inherit; font-family: inherit;
+}
+.expert-menu button:hover { background: var(--panel3); color: var(--text); }
 .conn-list { display: flex; flex-direction: column; gap: 8px; }
 .office-ops { margin: 4px 0; }
 

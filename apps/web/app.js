@@ -907,29 +907,38 @@ async function renderOfficePage() {
   };
 }
 
-function renderAgentForm() {
+function renderAgentForm(editing) {
   const stream = $('stream');
   const old = $('agentFormCard');
-  if (old) { old.remove(); return; }
-  const card = pageCard('创建专家', '保存后出现在专家列表，可在任意会话召唤',
+  if (old) { old.remove(); if (!editing) return; }
+  const isEdit = !!editing;
+  const card = pageCard(isEdit ? `编辑专家「${editing.name}」` : '创建专家',
+    isEdit ? '修改后立即生效；召唤时使用新的开场指令' : '保存后出现在专家列表，可在任意会话召唤',
     '<button class="pbtn accent" id="afSave">保存专家</button>');
+  card.id = 'agentFormCard';
   card.querySelector('.pc-body').innerHTML =
-    `<div class="form-row"><label>名称</label><input id="afName" placeholder="如：周报助手" /></div>` +
-    `<div class="form-row"><label>图标</label><input id="afIcon" placeholder="📊（emoji）" /></div>` +
-    `<div class="form-row"><label>一句话描述</label><input id="afDesc" placeholder="这个专家擅长什么" /></div>` +
-    `<div class="form-row"><label>开场指令</label><textarea id="afOpen" placeholder="召唤后自动发送给模型的角色指令…"></textarea></div>`;
+    `<div class="form-row"><label>名称</label><input id="afName" placeholder="如：周报助手" value="${esc(isEdit ? editing.name : '')}" /></div>` +
+    `<div class="form-row"><label>图标</label><input id="afIcon" placeholder="📊（emoji）" value="${esc(isEdit ? (editing.icon || '') : '')}" /></div>` +
+    `<div class="form-row"><label>一句话描述</label><input id="afDesc" placeholder="这个专家擅长什么" value="${esc(isEdit ? (editing.desc || '') : '')}" /></div>` +
+    `<div class="form-row"><label>开场指令</label><textarea id="afOpen" placeholder="召唤后自动发送给模型的角色指令…">${esc(isEdit ? (editing.opening || '') : '')}</textarea></div>`;
   stream.insertBefore(card, $('officeList'));
   card.querySelector('#afSave').onclick = () => {
     const name = card.querySelector('#afName').value.trim();
     if (!name) { alert('名称不能为空'); return; }
-    const list = loadCustomAgents();
-    list.push({
-      id: 'custom-' + Date.now(),
+    const data = {
+      id: isEdit ? editing.id : 'custom-' + Date.now(),
       name,
       icon: card.querySelector('#afIcon').value.trim() || '🤖',
       desc: card.querySelector('#afDesc').value.trim(),
       opening: card.querySelector('#afOpen').value.trim() || `你现在是「${name}」。请先简单介绍一下你能做什么。`,
-    });
+    };
+    const list = loadCustomAgents();
+    if (isEdit) {
+      const i = list.findIndex((x) => x.id === editing.id);
+      if (i >= 0) list[i] = data; else list.push(data);
+    } else {
+      list.push(data);
+    }
     saveCustomAgents(list);
     renderOfficePage();
   };
@@ -980,21 +989,43 @@ function expertCard(a, tag, installedMode) {
   card.className = 'expert-card';
   card.innerHTML =
     `<div class="ec-top"><span class="ec-av">${esc((a.icon || a.name || '?').slice(0, 2))}</span>` +
-    `<span class="ec-nm">${esc(a.name)}</span><span class="ec-tag">${esc(tag ?? '')}</span></div>` +
+    `<span class="ec-nm">${esc(a.name)}</span><span class="ec-tag">${esc(tag ?? '')}</span>` +
+    (a.custom ? `<button type="button" class="ec-more" data-more title="编辑 / 删除">${ICON_DOTS}</button>` : '') +
+    `</div>` +
     `<div class="ec-ds">${esc(a.desc || '')}</div>` +
-    `<div class="ec-ops"><button class="pbtn accent" data-sum>召唤</button>` +
-    (a.custom ? `<button class="pbtn danger" data-del>删除</button>` : '') +
-    `</div>`;
+    `<div class="ec-ops"><button class="pbtn accent" data-sum>召唤</button></div>`;
   card.querySelector('[data-sum]').onclick = () => {
     bumpAgentUse(a.id);
     startAgent(a);
   };
-  const del = card.querySelector('[data-del]');
-  if (del) del.onclick = async () => {
-    if (!(await uiConfirm(`删除自定义专家「${a.name}」？`, { danger: true, okText: '删除' }))) return;
-    saveCustomAgents(loadCustomAgents().filter((x) => x.id !== a.id));
-    renderOfficePage();
-  };
+  const more = card.querySelector('[data-more]');
+  if (more) {
+    more.onclick = (e) => {
+      e.stopPropagation();
+      const old = document.querySelector('.expert-menu');
+      if (old) old.remove();
+      const menu = document.createElement('div');
+      menu.className = 'expert-menu';
+      const mk = (label, fn) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = label;
+        b.onclick = () => { menu.remove(); fn(); };
+        menu.appendChild(b);
+      };
+      mk('✎ 编辑专家', () => renderAgentForm(a));
+      mk('🗑 删除专家', async () => {
+        if (!(await uiConfirm(`删除自定义专家「${a.name}」？`, { danger: true, okText: '删除' }))) return;
+        saveCustomAgents(loadCustomAgents().filter((x) => x.id !== a.id));
+        renderOfficePage();
+      });
+      document.body.appendChild(menu);
+      const r = more.getBoundingClientRect();
+      menu.style.left = Math.min(r.left, window.innerWidth - 170) + 'px';
+      menu.style.top = r.bottom + 6 + 'px';
+      setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
+    };
+  }
   return card;
 }
 
