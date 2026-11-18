@@ -307,6 +307,21 @@ function loadGroups() {
 function saveGroups() {
   try { localStorage.setItem('myagentGroups', JSON.stringify(state.groups)); } catch { /* ignore */ }
 }
+
+/* 组内拖拽排序：全局顺序数组（myagentSessionOrder），不在数组里的按 mtime 排后面 */
+function getSessionOrder() {
+  try { return JSON.parse(localStorage.getItem('myagentSessionOrder') || '[]') || []; } catch { return []; }
+}
+function saveSessionOrder(arr) {
+  try { localStorage.setItem('myagentSessionOrder', JSON.stringify(arr)); } catch { /* ignore */ }
+}
+function insertSessionOrder(dragId, targetId, before) {
+  let arr = getSessionOrder().filter((x) => x !== dragId);
+  const i = arr.indexOf(targetId);
+  if (i === -1) arr.push(dragId); // 目标从未排过序 → 追加到末尾
+  else arr.splice(before ? i : i + 1, 0, dragId);
+  saveSessionOrder(arr);
+}
 function loadSet(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')); } catch { return new Set(); }
 }
@@ -341,6 +356,12 @@ function renderGroups(sessions, searchHits) {
   // 置顶组最前；未归属项目最后；其余按名称
   const order = (g) => (g === '📌 置顶' ? 0 : g === '未归属项目' ? 2 : 1);
   const names = [...groups.keys()].sort((a, b) => order(a) - order(b) || (a < b ? -1 : 1));
+  // 组内排序：按用户拖拽顺序数组（未排过的按 mtime 降序排后面）
+  const sessOrder = getSessionOrder();
+  const ordOf = (id) => { const i = sessOrder.indexOf(id); return i === -1 ? 1e9 : i; };
+  for (const [, items] of groups) {
+    items.sort((a, b) => ordOf(a.id) - ordOf(b.id) || (b.mtimeMs || 0) - (a.mtimeMs || 0));
+  }
 
   list.innerHTML = '';
   let shown = 0;
@@ -502,7 +523,35 @@ function sessionItem(s) {
     e.dataTransfer.effectAllowed = 'move';
     btn.classList.add('dragging');
   });
-  btn.addEventListener('dragend', () => btn.classList.remove('dragging'));
+  btn.addEventListener('dragend', () => {
+    btn.classList.remove('dragging');
+    btn.classList.remove('drop-above', 'drop-below');
+  });
+  // 拖到会话项上：上/下半决定插入位置（组内排序 + 跨组归组）
+  btn.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer.types.includes('text/session-id')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = btn.getBoundingClientRect();
+    const above = e.clientY < rect.top + rect.height / 2;
+    btn.classList.toggle('drop-above', above);
+    btn.classList.toggle('drop-below', !above);
+  });
+  btn.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    btn.classList.remove('drop-above', 'drop-below');
+    const sid = e.dataTransfer.getData('text/session-id');
+    if (!sid || sid === s.id) return;
+    const rect = btn.getBoundingClientRect();
+    const before = e.clientY < rect.top + rect.height / 2;
+    const targetGroup = state.groups[s.id] || '未归属项目';
+    const dragGroup = state.groups[sid] || '未归属项目';
+    if (targetGroup !== dragGroup) assignGroup(sid, targetGroup); // 跨组拖拽 = 归组 + 排序
+    insertSessionOrder(sid, s.id, before);
+    refreshSessions();
+  });
   btn.onclick = async (e) => {
     if (e.target.closest('[data-pin]')) { togglePin(s.id); return; }
     if (e.target.closest('[data-menu]')) { openSessionMenu(e, s); return; }

@@ -137,6 +137,9 @@ body {
 .group-head.drop-hint { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); color: var(--text); }
 .session-item.dragging { opacity: 0.4; }
 #sessionList.drop-hint { outline: 1px dashed var(--accent); outline-offset: -4px; border-radius: 8px; }
+/* 组内排序：上/下半插入指示线 */
+.session-item.drop-above { box-shadow: inset 0 2px 0 var(--accent); }
+.session-item.drop-below { box-shadow: inset 0 -2px 0 var(--accent); }
 .group-head .chev { font-size: 9px; color: var(--muted); transition: transform 0.15s; flex: none; }
 .group.collapsed .group-head .chev { transform: rotate(-90deg); }
 .group-head .cnt { margin-left: auto; color: var(--muted); font-size: 11px; font-weight: 400; }
