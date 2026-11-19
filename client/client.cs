@@ -73,9 +73,6 @@ namespace AgentPlatform
         /** 后台回合完成通知（turn-done → 托盘气泡，仅窗体不可见时） */
         internal static Action<string> NotifySink;
 
-        /** JS → 宿主消息（会话标题等） */
-        internal static Action<string> WebMessageSink;
-
         [STAThread]
         private static void Main(string[] args)
         {
@@ -353,13 +350,19 @@ namespace AgentPlatform
             {
                 try
                 {
+                    bool isDone = json != null && json.IndexOf("turn-done", StringComparison.Ordinal) >= 0;
                     bool away = _form == null || !_form.Visible || _form.WindowState == FormWindowState.Minimized;
-                    if (away && json != null && json.IndexOf("turn-done", StringComparison.Ordinal) >= 0)
+                    ClientController.Log("[notify] sink json=" + (json ?? "null").Substring(0, Math.Min(120, (json ?? "").Length)) + " away=" + away + " visible=" + (_form != null ? _form.Visible.ToString() : "?") + " ws=" + (_form != null ? _form.WindowState.ToString() : "?"));
+                    if (away && isDone)
                     {
                         _tray.ShowBalloonTip(2500, "BugKiller", "回合已完成 —— 点托盘图标查看结果", ToolTipIcon.Info);
+                        ClientController.Log("[notify] 气泡已调用");
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    ClientController.Log("[notify] 异常: " + ex.Message);
+                }
             };
 
             ContextMenu menu = new ContextMenu();
@@ -783,6 +786,8 @@ namespace AgentPlatform
                 _caption.BringToFront();
                 LayoutChrome(); // 重新断言布局
                 ClientController.Log("[chrome] content=" + _content.Bounds.ToString() + " caption=" + _caption.Bounds.ToString());
+                // 探针：验证 NotifySink 链路（away=false 时只落日志不出气泡）
+                if (ok) { try { if (Program.NotifySink != null) Program.NotifySink("{\"type\":\"turn-done\",\"probe\":1}"); } catch { } }
                 if (ok) return;
                 ClientController.Log("内嵌不可用 → 浏览器回退模式");
                 BuildFallback(url);
