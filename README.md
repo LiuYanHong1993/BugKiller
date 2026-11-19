@@ -72,7 +72,6 @@ npm run package             # 产物：dist/agent-platform-<version>.zip
 
 - [x] **斜杠命令系统**：输入 / 弹出命令面板（/clear、/export、/new、/model 等 11 个命令），↑↓ 选择、Enter 执行
 - [x] **会话导出**：导出 Markdown（回合 + 工具结果）与 JSONL 原始档（命令 /export、/export-json）
-- [ ] **会话导出**：导出 Markdown（回合 + 工具结果）与 JSONL 原始档
 - [x] **审计视图**：审批决策时间线（工具 / 参数 / 结果），可按工具筛选，/audit 命令 + 设置页入口
 - [x] **全局热键唤起**：Ctrl+Alt+B 显示/隐藏主窗口（Alt+Space 被 Windows 系统菜单保留，改用 Ctrl+Alt+B）
 - [x] **输入历史召回**：空输入按 ↑ 回退最近 20 条发送记录，↓ 前进
