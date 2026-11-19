@@ -2300,6 +2300,7 @@ async function send() {
           }
           finalizeTurn();
           setSessStatus(false, '完成');
+          postToHost({ type: 'turn-done', title: state.sessionTitle || '' }); // 最小化时客户端弹气泡
         } else if (evName === 'error') {
           removeThinking();
           appendNote(`发送失败：${data.message ?? '未知错误'}`, true);

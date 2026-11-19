@@ -70,6 +70,12 @@ namespace AgentPlatform
         /** JS → 宿主消息（会话标题等） */
         internal static Action<string> WebMessageSink;
 
+        /** 后台回合完成通知（turn-done → 托盘气泡，仅窗体不可见时） */
+        internal static Action<string> NotifySink;
+
+        /** JS → 宿主消息（会话标题等） */
+        internal static Action<string> WebMessageSink;
+
         [STAThread]
         private static void Main(string[] args)
         {
@@ -339,8 +345,22 @@ namespace AgentPlatform
         {
             _tray = new NotifyIcon();
             _tray.Icon = LoadAppIcon();
-            _tray.Text = "agent-platform";
+            _tray.Text = "BugKiller";
             _tray.Visible = true;
+
+            // 后台回合完成 → 托盘气泡（窗体隐藏/最小化时才打扰）
+            Program.NotifySink = delegate(string json)
+            {
+                try
+                {
+                    bool away = _form == null || !_form.Visible || _form.WindowState == FormWindowState.Minimized;
+                    if (away && json != null && json.IndexOf("turn-done", StringComparison.Ordinal) >= 0)
+                    {
+                        _tray.ShowBalloonTip(2500, "BugKiller", "回合已完成 —— 点托盘图标查看结果", ToolTipIcon.Info);
+                    }
+                }
+                catch { }
+            };
 
             ContextMenu menu = new ContextMenu();
             MenuItem miOpen = new MenuItem("打开主窗口");
@@ -851,6 +871,7 @@ namespace AgentPlatform
                     {
                         string json = e2.WebMessageAsJson;
                         if (Program.WebMessageSink != null) Program.WebMessageSink(json);
+                        if (Program.NotifySink != null) Program.NotifySink(json);
                     }
                     catch { }
                 };
