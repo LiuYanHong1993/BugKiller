@@ -73,6 +73,15 @@ namespace AgentPlatform
         /** 后台回合完成通知（turn-done → 托盘气泡，仅窗体不可见时） */
         internal static Action<string> NotifySink;
 
+        [DllImport("shell32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
+
+        /// <summary>Win10/11 通知（toast / 托盘气泡）需要显式 AppUserModelID，否则常被系统静默丢弃</summary>
+        internal static void InitAppId()
+        {
+            try { SetCurrentProcessExplicitAppUserModelID("BugKiller.Desktop.Client"); } catch { }
+        }
+
         [STAThread]
         private static void Main(string[] args)
         {
@@ -83,6 +92,7 @@ namespace AgentPlatform
             }
             if (hasFlag) { Uninstaller.Run(); return; }
 
+            InitAppId(); // 通知系统身份（toast/气泡可见性前提）
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             ClientController client = new ClientController();
@@ -345,18 +355,22 @@ namespace AgentPlatform
             _tray.Text = "BugKiller";
             _tray.Visible = true;
 
-            // 后台回合完成 → 托盘气泡（窗体隐藏/最小化时才打扰）
+            // 后台回合完成 → 托盘气泡（窗口非前台激活时才打扰：隐藏/最小化/被其他窗口遮挡）
             Program.NotifySink = delegate(string json)
             {
                 try
                 {
                     bool isDone = json != null && json.IndexOf("turn-done", StringComparison.Ordinal) >= 0;
-                    bool away = _form == null || !_form.Visible || _form.WindowState == FormWindowState.Minimized;
-                    ClientController.Log("[notify] sink json=" + (json ?? "null").Substring(0, Math.Min(120, (json ?? "").Length)) + " away=" + away + " visible=" + (_form != null ? _form.Visible.ToString() : "?") + " ws=" + (_form != null ? _form.WindowState.ToString() : "?"));
+                    bool foreground = _form != null && _form.Visible && _form.WindowState != FormWindowState.Minimized
+                        && Form.ActiveForm == _form;
+                    bool away = !foreground;
+                    ClientController.Log("[notify] sink json=" + (json ?? "null").Substring(0, Math.Min(120, (json ?? "").Length)) + " away=" + away + " foreground=" + foreground);
                     if (away && isDone)
                     {
-                        _tray.ShowBalloonTip(2500, "BugKiller", "回合已完成 —— 点托盘图标查看结果", ToolTipIcon.Info);
-                        ClientController.Log("[notify] 气泡已调用");
+                        _tray.ShowBalloonTip(5000, "BugKiller", "回合已完成 —— 点此或托盘图标查看结果", ToolTipIcon.Info);
+                        // 保底：自绘提示窗（系统通知被关闭/勿扰时仍然可见）
+                        NotifyToast.ShowToast("BugKiller · 回合已完成", "点托盘图标回到窗口查看结果");
+                        ClientController.Log("[notify] 气泡+自绘提示已调用");
                     }
                 }
                 catch (Exception ex)
@@ -494,6 +508,92 @@ namespace AgentPlatform
     }
 
     // ================= 主窗口 =================
+
+    /// <summary>右下角自绘提示窗（不依赖系统通知设置，4.5 秒自动淡出，不抢焦点）</summary>
+    internal sealed class NotifyToast : Form
+    {
+        private readonly System.Windows.Forms.Timer _timer;
+
+        protected override bool ShowWithoutActivation
+        {
+            get { return true; }
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
+                cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW（不占任务栏/Alt+Tab）
+                return cp;
+            }
+        }
+
+        private NotifyToast(string title, string text)
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.Manual;
+            ShowInTaskbar = false;
+            TopMost = true;
+            BackColor = Color.FromArgb(28, 30, 34);
+            Size = new Size(360, 92);
+            Rectangle wa = Screen.PrimaryScreen.WorkingArea;
+            Location = new Point(wa.Right - Width - 18, wa.Bottom - Height - 18);
+
+            Label t = new Label();
+            t.Text = title;
+            t.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+            t.ForeColor = Color.FromArgb(232, 234, 238);
+            t.AutoSize = true;
+            t.Location = new Point(16, 14);
+            Controls.Add(t);
+
+            Label body = new Label();
+            body.Text = text;
+            body.Font = new Font("Segoe UI", 9f);
+            body.ForeColor = Color.FromArgb(168, 173, 184);
+            body.AutoSize = true;
+            body.Location = new Point(16, 42);
+            Controls.Add(body);
+
+            Paint += delegate(object s, PaintEventArgs e)
+            {
+                using (Pen p = new Pen(Color.FromArgb(78, 142, 247), 3))
+                {
+                    e.Graphics.DrawLine(p, 0, 0, 0, Height); // 左侧强调条
+                }
+                using (Pen p = new Pen(Color.FromArgb(48, 50, 58), 1))
+                {
+                    e.Graphics.DrawRectangle(p, 0, 0, Width - 1, Height - 1);
+                }
+            };
+
+            MouseClick += delegate { Close(); };
+            t.MouseClick += delegate { Close(); };
+            body.MouseClick += delegate { Close(); };
+
+            _timer = new System.Windows.Forms.Timer();
+            _timer.Interval = 4500;
+            _timer.Tick += delegate
+            {
+                _timer.Stop();
+                try { Close(); } catch { }
+            };
+            _timer.Start();
+        }
+
+        /// <summary>显示一条右下角提示（系统通知被禁用时的可靠兜底）</summary>
+        internal static void ShowToast(string title, string text)
+        {
+            try
+            {
+                NotifyToast toast = new NotifyToast(title, text);
+                toast.Show();
+            }
+            catch { }
+        }
+    }
 
     internal sealed class MainForm : Form
     {
