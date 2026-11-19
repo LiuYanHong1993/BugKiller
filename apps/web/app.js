@@ -1763,6 +1763,28 @@ function renderTracePage(events) {
         if (d > 0) right += ` <span class="dur">${fmtDur(d)}</span>`;
       }
       row.innerHTML = `<span class="s-seq">#${e.seq}</span>${badge}<span class="s-tx">${esc(truncate(brief, 150))}</span><span class="s-meta">${right}</span>`;
+      // 写操作一键回滚：write_file 行加 ↩ 按钮（恢复到该会话首次写入前状态）
+      if (e.type === 'tool_call' && e.name === 'write_file') {
+        let fp = '';
+        try { fp = String(JSON.parse(e.arguments || '{}').file_path || ''); } catch { /* 忽略 */ }
+        if (fp) {
+          const rb = document.createElement('button');
+          rb.type = 'button';
+          rb.className = 'pbtn';
+          rb.textContent = '↩ 回滚';
+          rb.title = `恢复 ${fp} 到本会话写入前状态`;
+          rb.onclick = async () => {
+            if (!(await uiConfirm(`把 ${fp} 恢复为本会话首次写入前的状态？`, { title: '写操作回滚', danger: true, okText: '回滚' }))) return;
+            try {
+              const r = await api(`/api/rollback/${state.sessionId}`, { method: 'POST', body: JSON.stringify({ path: fp }) });
+              appendNote(`↩ ${r.action || (r.restored ? '已回滚' : '无需回滚')}`);
+            } catch (err) {
+              appendNote(`回滚失败：${err.message}`, true);
+            }
+          };
+          row.appendChild(rb);
+        }
+      }
       bodyEl.appendChild(row);
       prevTs = e.ts;
     }

@@ -18,7 +18,7 @@ import type { PolicyConfig } from '../policy.ts';
 import type { ApprovalBroker } from './approvals.ts';
 import { runTurn, runTurnStream } from '../agent/loop.ts';
 import { buildSystemPrompt } from '../agent/system-prompt.ts';
-import { SandboxSession, assertGuardedPath, assertSizeOk } from '../sandbox/session.ts';
+import { SandboxSession, assertGuardedPath, assertSizeOk, rollbackFile } from '../sandbox/session.ts';
 import { loadSandboxPolicy } from '../sandbox/policy.ts';
 import { loadTodos } from '../tools/todo.ts';
 import { mkdir, readdir, readFile, rm, stat, writeFile, appendFile } from 'node:fs/promises';
@@ -532,6 +532,17 @@ export function startServer(deps: ServerDeps): Promise<string> {
         });
       }
 
+      // ---- 写操作单文件回滚（preimage 恢复） ----
+      m = pathname.match(/^\/api\/rollback\/([A-Za-z0-9-]+)$/);
+      if (m && req.method === 'POST') {
+        const body = await readJson(req);
+        const rel = String(body?.path ?? '').trim();
+        if (!rel) return json(res, 400, { error: '缺少 path' });
+        const out = await rollbackFile(deps.workspaceRoot, resolve(deps.workspaceRoot, 'data', 'sandbox'), m[1]!, rel);
+        deps.log(`[rollback] ${m[1]} ${rel} → ${out.action}`);
+        return json(res, 200, out);
+      }
+
       // ---- 审计：跨会话审批请求/决策汇总（按时间倒序） ----
       if (pathname === '/api/audit' && req.method === 'GET') {
         const summaries = await deps.store.list().catch(() => []);
@@ -597,6 +608,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
         journalDir: resolve(deps.workspaceRoot, 'data', 'sandbox'),
         policy: sandboxPolicy,
         log: deps.log,
+        idHint: sessionId, // journal 按会话 id 建目录 → /api/rollback 可跨重启定位
       });
       sandboxes.set(sessionId, sandbox);
     }

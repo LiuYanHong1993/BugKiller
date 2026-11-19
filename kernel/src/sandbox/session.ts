@@ -32,11 +32,12 @@ export class SandboxSession {
   private seq = 0;
   private denyRules: RegExp[];
 
-  constructor(opts: { workspaceRoot: string; journalDir: string; policy: SandboxPolicy; log: (line: string) => void }) {
+  constructor(opts: { workspaceRoot: string; journalDir: string; policy: SandboxPolicy; log: (line: string) => void; idHint?: string }) {
     this.root = resolve(opts.workspaceRoot);
     this.policy = opts.policy;
     this.log = opts.log;
-    this.id = `${stamp()}-${randomBytes(2).toString('hex')}`;
+    // idHint（sessionId）作 journal 子目录名：跨重启仍可按会话定位回滚账本
+    this.id = opts.idHint || `${stamp()}-${randomBytes(2).toString('hex')}`;
     this.journalFile = join(opts.journalDir, this.id, 'preimages.jsonl');
     this.denyRules = opts.policy.denyPaths.map(globToRegExp);
   }
@@ -122,6 +123,44 @@ function stamp(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/** 单文件回滚：按 journal 中该路径的首次 preimage 恢复（不依赖会话对象存活；供 HTTP API 用） */
+export async function rollbackFile(
+  workspaceRoot: string,
+  journalDir: string,
+  journalId: string,
+  rel: string,
+): Promise<{ restored: boolean; action: string }> {
+  const file = join(journalDir, journalId, 'preimages.jsonl');
+  let text = '';
+  try {
+    text = await readFile(file, 'utf8');
+  } catch {
+    return { restored: false, action: '未找到回滚账本（journal 不存在）' };
+  }
+  const norm = String(rel).trim().split('\\').join('/').replace(/^\/+/, '');
+  let first: Preimage | null = null;
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const e = JSON.parse(line) as Preimage & { ts?: string };
+      if (e.rel === norm) { first = e; break; } // journal 按序追加，首条 = 首次写前状态
+    } catch { /* 跳过损坏行 */ }
+  }
+  if (!first) return { restored: false, action: `账本中无 ${norm} 的记录` };
+  const target = resolve(workspaceRoot, norm);
+  const relCheck = relative(workspaceRoot, target);
+  if (relCheck.startsWith('..') || relCheck.includes('..')) {
+    return { restored: false, action: '路径越界' };
+  }
+  if (first.existed && first.contentB64) {
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, Buffer.from(first.contentB64, 'base64'));
+    return { restored: true, action: `${norm} 已恢复为写入前内容` };
+  }
+  await rm(target, { force: true });
+  return { restored: true, action: `${norm} 为新建文件，已删除` };
 }
 
 /** 独立守卫（办公套件等 API 场景）：解析工作区相对路径并校验越界 + 守卫名单，返回绝对路径 */
