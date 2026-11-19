@@ -285,7 +285,7 @@ function updatePlan() {
 }
 function setConn(on) {
   const sb = $('sbInfo');
-  if (sb) sb.textContent = on === false ? '内核未连接' : 'BugKiller v0.1 · 本地内核';
+  if (sb) sb.textContent = on === false ? '内核未连接' : 'BugKiller v0.2.0 · 本地内核';
 }
 
 /** JS → C# 标题栏通道（WebView2 WebMessage；浏览器环境静默） */
@@ -2564,7 +2564,7 @@ function renderSettingsPage() {
 
   const about = pageCard('关于', '');
   about.querySelector('.pc-body').innerHTML =
-    `<div class="kv"><span>版本</span><span class="v">agent-platform v0.1.0（正式版）</span></div>` +
+    `<div class="kv"><span>版本</span><span class="v">BugKiller v0.2.0（正式版）</span></div>` +
     `<div class="kv"><span>内核</span><span class="v">Node ${esc(navigator.userAgent.includes('Chrome') ? '22 原生 TS' : '')} · 零 npm 依赖</span></div>` +
     `<div class="kv"><span>工作区</span><span class="v">${esc(s.workspaceRoot || '…')}</span></div>` +
     `<div class="kv"><span>数据</span><span class="v">data/（会话 JSONL · 凭据 DPAPI · 反馈）</span></div>`;

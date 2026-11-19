@@ -187,7 +187,7 @@ namespace AgentPlatform
 
         // ================= 自动更新检查 =================
 
-        private const string AppVersion = "0.1.0";
+        private const string AppVersion = "0.2.0";
         private const string ReleasesApi = "https://api.github.com/repos/LiuYanHong1993/BugKiller/releases/latest";
 
         private void StartUpdateCheck()
@@ -887,7 +887,7 @@ namespace AgentPlatform
 
             // 版本徽章（暗色小字，跟在品牌后）
             Label ver = new Label();
-            ver.Text = "正式版 v0.1.0";
+            ver.Text = "正式版 v0.2.0";
             ver.Font = new Font("Segoe UI", 8.5f);
             ver.ForeColor = Color.FromArgb(130, 135, 145);
             ver.AutoSize = true;
@@ -1247,7 +1247,7 @@ namespace AgentPlatform
 
         private static void WriteRegistry(string dest)
         {
-            string version = "0.1.0";
+            string version = "0.2.0";
             try
             {
                 Match m = Regex.Match(
