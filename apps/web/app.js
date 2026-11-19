@@ -1102,6 +1102,75 @@ function renderOfficeKnowledge(listWrap) {
   }).catch(() => {});
 }
 
+/* ---------------- @ 提及（文件 / 专家） ---------------- */
+
+let mention = { open: false, items: [], idx: 0, start: -1 };
+
+async function loadMentionSource() {
+  if (state.mentionCache && Date.now() - (state.mentionCacheAt || 0) < 60000) return state.mentionCache;
+  let files = [];
+  try { files = (await api('/api/files')).files || []; } catch { /* 忽略 */ }
+  let agents = [];
+  try { agents = (await api('/api/agents')).agents || []; } catch { /* 忽略 */ }
+  agents = [...loadCustomAgents(), ...agents];
+  const src = [
+    ...files.map((f) => ({ kind: 'file', value: '@' + f.path, label: '📄 ' + f.path, hint: fmtNum(f.size) + ' B' })),
+    ...agents.map((a) => ({ kind: 'agent', value: a.opening || `你现在是「${a.name}」。`, label: (a.icon || '🤖') + ' ' + a.name, hint: '专家 · 插入开场指令' })),
+  ];
+  state.mentionCache = src;
+  state.mentionCacheAt = Date.now();
+  return src;
+}
+
+function renderMentionPanel() {
+  let p = $('mentionPanel');
+  if (!mention.open || !mention.items.length) { if (p) p.remove(); return; }
+  if (!p) {
+    p = document.createElement('div');
+    p.id = 'mentionPanel';
+    $('composerWrap').appendChild(p);
+  }
+  p.innerHTML = mention.items.map((c, i) =>
+    `<button type="button" class="sitem ${i === mention.idx ? 'active' : ''}" data-i="${i}"><b>${esc(c.label)}</b><span>${esc(c.hint || '')}</span></button>`).join('');
+  for (const b of p.querySelectorAll('.sitem')) {
+    b.onclick = () => runMention(mention.items[+b.dataset.i]);
+  }
+  const act = p.querySelector('.sitem.active');
+  if (act) act.scrollIntoView({ block: 'nearest' });
+}
+
+function runMention(item) {
+  const input = $('input');
+  const v = input.value;
+  const caret = input.selectionStart ?? v.length;
+  const before = v.slice(0, mention.start);
+  const after = v.slice(caret);
+  input.value = before + item.value + (item.kind === 'file' ? ' ' : '') + after;
+  mention.open = false;
+  renderMentionPanel();
+  input.focus();
+  input.setSelectionRange((before + item.value).length + (item.kind === 'file' ? 1 : 0), (before + item.value).length + (item.kind === 'file' ? 1 : 0));
+  fitInput();
+}
+
+async function mentionOnInput() {
+  const input = $('input');
+  const v = input.value;
+  const caret = input.selectionStart ?? v.length;
+  const m = /@([^\s@]*)$/.exec(v.slice(0, caret));
+  if (!m) {
+    if (mention.open) { mention.open = false; renderMentionPanel(); }
+    return;
+  }
+  const kw = m[1].toLowerCase();
+  const src = await loadMentionSource();
+  mention.open = true;
+  mention.start = caret - m[0].length;
+  mention.items = src.filter((x) => x.label.toLowerCase().includes(kw) || x.value.toLowerCase().includes(kw)).slice(0, 12);
+  mention.idx = 0;
+  renderMentionPanel();
+}
+
 /* ---------------- 模型参数浮层（⚙ / /params） ---------------- */
 
 async function toggleParamsPanel() {
@@ -2689,6 +2758,12 @@ function boot() {
   for (const t of document.querySelectorAll('.tab')) t.onclick = () => switchTab(t.dataset.tab);
   const input = $('input');
   input.addEventListener('keydown', (e) => {
+    if (mention.open && mention.items.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); mention.idx = (mention.idx + 1) % mention.items.length; renderMentionPanel(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); mention.idx = (mention.idx - 1 + mention.items.length) % mention.items.length; renderMentionPanel(); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); runMention(mention.items[mention.idx]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); mention.open = false; renderMentionPanel(); return; }
+    }
     if (slash.open && slash.items.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); slash.idx = (slash.idx + 1) % slash.items.length; renderSlashPanel(); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); slash.idx = (slash.idx - 1 + slash.items.length) % slash.items.length; renderSlashPanel(); return; }
@@ -2732,6 +2807,7 @@ function boot() {
       if (h[inputHistIdx] !== v) inputHistIdx = -1; // 手动编辑 → 退出历史浏览态
     }
     if (v === '') inputHistIdx = -1;
+    if (v.indexOf('@') >= 0) mentionOnInput(); else if (mention.open) { mention.open = false; renderMentionPanel(); }
     slashOnInput();
     fitInput();
   });

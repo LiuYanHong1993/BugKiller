@@ -4,7 +4,7 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, relative, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { ChatMessage } from '../llm/types.ts';
 import type { OpenAiCompatibleProvider } from '../llm/provider.ts';
@@ -530,6 +530,46 @@ export function startServer(deps: ServerDeps): Promise<string> {
           trend,
           compactions: events.filter((e) => e.type === 'compaction').length,
         });
+      }
+
+      // ---- 工作区文件清单（@ 提及用：深度≤2，跳过数据/依赖目录） ----
+      if (pathname === '/api/files' && req.method === 'GET') {
+        const out: Array<{ path: string; size: number }> = [];
+        const skip = new Set(['data', 'dist', 'node_modules', 'keys', '.git', 'webview2-profile', 'attachments', 'notes']);
+        const walk = async (dir: string, depth: number): Promise<void> => {
+          if (out.length >= 120 || depth > 2) return;
+          let names: string[] = [];
+          try { names = await readdir(dir); } catch { return; }
+          names.sort();
+          for (const n of names) {
+            if (out.length >= 120) return;
+            if (n.startsWith('.')) continue;
+            const full = join(dir, n);
+            let st;
+            try { st = await stat(full); } catch { continue; }
+            if (st.isDirectory()) {
+              // notes/ 单独浅扫（用户知识库，值得列）
+              if (n === 'notes' && depth === 0) {
+                let noteNames: string[] = [];
+                try { noteNames = await readdir(full); } catch { noteNames = []; }
+                for (const nn of noteNames.slice(0, 40)) {
+                  const nf = join(full, nn);
+                  try {
+                    const nst = await stat(nf);
+                    if (nst.isFile()) out.push({ path: `notes/${nn}`, size: nst.size });
+                  } catch { /* 跳过 */ }
+                }
+                continue;
+              }
+              if (skip.has(n)) continue;
+              await walk(full, depth + 1);
+            } else {
+              out.push({ path: relative(deps.workspaceRoot, full).split(sep).join('/'), size: st.size });
+            }
+          }
+        };
+        await walk(deps.workspaceRoot, 0);
+        return json(res, 200, { files: out });
       }
 
       // ---- 写操作单文件回滚（preimage 恢复） ----
