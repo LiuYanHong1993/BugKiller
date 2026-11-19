@@ -1,4 +1,4 @@
-// agent-platform Windows 客户端（原生 WinForms，零外部依赖）
+﻿// agent-platform Windows 客户端（原生 WinForms，零外部依赖）
 //  - 双击即用：未安装 → 一键安装向导（复制载荷 + 写注册表卸载项 + 快捷方式）
 //  - 已安装 → 托盘常驻 + 主窗口（WebView2 内嵌 Web UI；不可用则回退浏览器打开）
 //  - 内核管理：自动探测 Node、拉起 scripts/serve.js、捕获令牌 URL、崩溃自动重启 ×3
@@ -181,7 +181,73 @@ namespace AgentPlatform
             _form.Show();
 
             StartKernel();
+            StartUpdateCheck();
             Application.Run(this);
+        }
+
+        // ================= 自动更新检查 =================
+
+        private const string AppVersion = "0.1.0";
+        private const string ReleasesApi = "https://api.github.com/repos/LiuYanHong1993/BugKiller/releases/latest";
+
+        private void StartUpdateCheck()
+        {
+            System.Threading.Thread t = new System.Threading.Thread(CheckUpdateLoop);
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        private void CheckUpdateLoop()
+        {
+            try
+            {
+                System.Threading.Thread.Sleep(15000); // 启动稳定后再查，不抢启动资源
+                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(ReleasesApi);
+                req.UserAgent = "BugKiller-Client/" + AppVersion;
+                req.Timeout = 10000;
+                req.Proxy = WebRequest.GetSystemWebProxy(); // 走系统代理（离线/被墙则静默跳过）
+                using (HttpWebResponse res = (HttpWebResponse)req.GetResponse())
+                using (StreamReader sr = new StreamReader(res.GetResponseStream()))
+                {
+                    string json = sr.ReadToEnd();
+                    string tag = Regex.Match(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"").Groups[1].Value;
+                    string url = Regex.Match(json, "\"html_url\"\\s*:\\s*\"([^\"]+)\"").Groups[1].Value;
+                    Log("[update] 最新=" + tag + " 当前=v" + AppVersion);
+                    if (string.IsNullOrEmpty(tag)) return;
+                    string remote = tag.TrimStart('v', 'V');
+                    if (IsNewerVersion(remote, AppVersion))
+                    {
+                        string open = string.IsNullOrEmpty(url) ? "https://github.com/LiuYanHong1993/BugKiller/releases" : url;
+                        string title = "发现新版本 " + tag;
+                        string body = "点此打开下载页（当前 v" + AppVersion + "）";
+                        if (_form != null)
+                        {
+                            _form.BeginInvoke((MethodInvoker)delegate { NotifyToast.ShowToast(title, body, open); });
+                            Log("[update] 发现新版本，已提示：" + tag);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("[update] 检查跳过：" + ex.Message);
+            }
+        }
+
+        private static bool IsNewerVersion(string remote, string local)
+        {
+            string[] a = remote.Split('.');
+            string[] b = local.Split('.');
+            int n = Math.Max(a.Length, b.Length);
+            for (int i = 0; i < n; i++)
+            {
+                int x = 0, y = 0;
+                if (i < a.Length) int.TryParse(a[i], out x);
+                if (i < b.Length) int.TryParse(b[i], out y);
+                if (x != y) return x > y;
+            }
+            return false;
         }
 
         private static void OnThreadException(object sender, ThreadExceptionEventArgs e)
@@ -367,10 +433,9 @@ namespace AgentPlatform
                     ClientController.Log("[notify] sink json=" + (json ?? "null").Substring(0, Math.Min(120, (json ?? "").Length)) + " away=" + away + " foreground=" + foreground);
                     if (away && isDone)
                     {
-                        _tray.ShowBalloonTip(5000, "BugKiller", "回合已完成 —— 点此或托盘图标查看结果", ToolTipIcon.Info);
-                        // 保底：自绘提示窗（系统通知被关闭/勿扰时仍然可见）
+                        // 只发自绘提示窗（系统气泡在 Win11 会重复成白色 toast，视觉割裂）
                         NotifyToast.ShowToast("BugKiller · 回合已完成", "点托盘图标回到窗口查看结果");
-                        ClientController.Log("[notify] 气泡+自绘提示已调用");
+                        ClientController.Log("[notify] 自绘提示已调用");
                     }
                 }
                 catch (Exception ex)
@@ -513,6 +578,23 @@ namespace AgentPlatform
     internal sealed class NotifyToast : Form
     {
         private readonly System.Windows.Forms.Timer _timer;
+        private readonly string _clickUrl;
+
+        /// <summary>点击提示窗：关闭并（可选）打开链接</summary>
+        private void CloseAndOpen()
+        {
+            try { Close(); } catch { }
+            if (!string.IsNullOrEmpty(_clickUrl))
+            {
+                try
+                {
+                    ProcessStartInfo psi = new ProcessStartInfo(_clickUrl);
+                    psi.UseShellExecute = true;
+                    Process.Start(psi);
+                }
+                catch { }
+            }
+        }
 
         protected override bool ShowWithoutActivation
         {
@@ -530,8 +612,9 @@ namespace AgentPlatform
             }
         }
 
-        private NotifyToast(string title, string text)
+        private NotifyToast(string title, string text, string clickUrl)
         {
+            _clickUrl = clickUrl;
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual;
             ShowInTaskbar = false;
@@ -569,9 +652,9 @@ namespace AgentPlatform
                 }
             };
 
-            MouseClick += delegate { Close(); };
-            t.MouseClick += delegate { Close(); };
-            body.MouseClick += delegate { Close(); };
+            MouseClick += delegate { CloseAndOpen(); };
+            t.MouseClick += delegate { CloseAndOpen(); };
+            body.MouseClick += delegate { CloseAndOpen(); };
 
             _timer = new System.Windows.Forms.Timer();
             _timer.Interval = 4500;
@@ -583,12 +666,18 @@ namespace AgentPlatform
             _timer.Start();
         }
 
-        /// <summary>显示一条右下角提示（系统通知被禁用时的可靠兜底）</summary>
+        /// <summary>显示一条右下角提示（不依赖系统通知设置）</summary>
         internal static void ShowToast(string title, string text)
+        {
+            ShowToast(title, text, null);
+        }
+
+        /// <summary>显示提示；clickUrl 非空时点击打开（如更新下载页）</summary>
+        internal static void ShowToast(string title, string text, string clickUrl)
         {
             try
             {
-                NotifyToast toast = new NotifyToast(title, text);
+                NotifyToast toast = new NotifyToast(title, text, clickUrl);
                 toast.Show();
             }
             catch { }
