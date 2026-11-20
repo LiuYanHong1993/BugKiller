@@ -1069,6 +1069,7 @@ namespace AgentPlatform
                         {
                             try
                             {
+                                ClientController.Log("[pick-folder] 打开系统文件夹选择框");
                                 string picked = null;
                                 using (FolderBrowserDialog fb = new FolderBrowserDialog())
                                 {
@@ -1078,6 +1079,7 @@ namespace AgentPlatform
                                 }
                                 string payload = picked == null ? "null" : "\"" + picked.Replace("\\", "\\\\") + "\"";
                                 wv.CoreWebView2.ExecuteScriptAsync("window.__applyWsPick && window.__applyWsPick(" + payload + ");");
+                                ClientController.Log("[pick-folder] 已回传: " + (picked ?? "(取消)"));
                             }
                             catch (Exception ex3) { ClientController.Log("[pick-folder] " + ex3.Message); }
                             return;
