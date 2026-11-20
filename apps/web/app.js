@@ -2101,6 +2101,34 @@ function quoteIntoInput(text) {
   fitInput();
 }
 
+/** 定位某条回复对应的原始提问：优先用回合 dataset，失败则从事件流回查（重渲染后仍可靠） */
+async function locateTurnOrigin(div, getText) {
+  const t = div.closest('.turn');
+  let userSeq = Number((t && t.dataset.userSeq) || 0);
+  let userText = (t && t.dataset.userText) || '';
+  if (userSeq && userText) return { userSeq, userText };
+  // 回退 1：事件流里按回复文本前缀找 assistant，再往前找最近 user
+  let evs = [];
+  try { evs = (await api(`/api/sessions/${state.sessionId}/events?since=0`)).events || []; } catch { evs = []; }
+  const replyHead = String(getText() || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  let idx = -1;
+  if (replyHead) {
+    for (let i = evs.length - 1; i >= 0; i--) {
+      const e = evs[i];
+      if (e.type === 'assistant' && String(e.text || '').replace(/\s+/g, ' ').trim().slice(0, 40) === replyHead) { idx = i; break; }
+    }
+  }
+  if (idx === -1) {
+    // 回退 2：直接用最后一条 user（常见场景：重新生成最新回合）
+    for (let i = evs.length - 1; i >= 0; i--) if (evs[i].type === 'user') { idx = i; break; }
+  }
+  for (let i = idx; i >= 0; i--) {
+    if (evs[i].type === 'user') { userSeq = evs[i].seq; userText = String(evs[i].text || ''); break; }
+  }
+  if (userSeq && t) { t.dataset.userSeq = String(userSeq); t.dataset.userText = userText; } // 回填缓存
+  return { userSeq, userText };
+}
+
 /** 给 assistant 消息挂悬停操作（⧉ 复制 / ↻ 重新生成 / ❝ 引用）；getText 支持流式动态文本 */
 function attachAssistantActions(div, getText) {
   const cp = document.createElement('button');
@@ -2123,10 +2151,8 @@ function attachAssistantActions(div, getText) {
   regen.title = '重新生成此回复';
   regen.textContent = '↻';
   regen.onclick = async () => {
-    const t = div.closest('.turn');
-    const userSeq = Number((t && t.dataset.userSeq) || 0);
-    const userText = (t && t.dataset.userText) || '';
-    if (!userSeq || !userText) { appendNote('无法定位原消息', true); return; }
+    const { userSeq, userText } = await locateTurnOrigin(div, getText);
+    if (!userSeq || !userText) { appendNote('无法定位原消息（该会话事件流中找不到对应提问）', true); return; }
     if (!(await uiConfirm('重新生成这条回复？该回复之后的内容将被丢弃。', { title: '重新生成', okText: '重新生成' }))) return;
     try {
       await api(`/api/sessions/${state.sessionId}/truncate`, { method: 'POST', body: JSON.stringify({ beforeSeq: userSeq }) });
