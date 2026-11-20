@@ -1249,7 +1249,13 @@ async function openWsDrawer() {
       row.type = 'button';
       row.className = 'tree-row file';
       row.style.paddingLeft = `${8 + depth * 12 + 14}px`;
+      row.title = '点击查看/编辑 · 拖到对话框插入引用';
       row.innerHTML = `${icon('fileText', 13)} <span style="margin-left:4px">${esc(f.name)}</span><span class="tsize">${fmtNum(f.size)}B</span>`;
+      row.draggable = true; // 可拖入对话框插入 @路径 引用
+      row.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/wspath', f.path);
+        e.dataTransfer.effectAllowed = 'copy';
+      });
       row.onclick = () => openFileEditor(editorBox, f.path);
       container.appendChild(row);
     }
@@ -2454,6 +2460,22 @@ function finalizeTurn(replyTs) {
   state.currentTurn = null;
 }
 
+/** 把工作区文件引用（@路径）插入输入框光标处（拖拽工作区文件到对话框时调用） */
+function insertWsRef(path) {
+  if (state.view !== 'chat') switchView('chat');
+  const input = $('input');
+  const caret = input.selectionStart ?? input.value.length;
+  const v = input.value;
+  const before = v.slice(0, caret);
+  const after = v.slice(caret);
+  const piece = '@' + path + ' ';
+  input.value = before + piece + after;
+  input.focus();
+  const pos = (before + piece).length;
+  input.setSelectionRange(pos, pos);
+  fitInput();
+}
+
 /** 引用一段内容到输入框（截断 100 字，多行加 > 前缀） */
 function quoteIntoInput(text) {
   const t = String(text || '').trim();
@@ -3318,6 +3340,9 @@ function boot() {
   main.addEventListener('drop', (e) => {
     e.preventDefault();
     $('composer').classList.remove('drag-over');
+    // 工作区文件拖入 → 插入 @路径 引用（模型会自动去读）
+    const wsp = e.dataTransfer ? e.dataTransfer.getData('text/wspath') : '';
+    if (wsp) { insertWsRef(wsp); return; }
     if (e.dataTransfer && e.dataTransfer.files.length) {
       switchView('chat');
       handleFiles([...e.dataTransfer.files]);
