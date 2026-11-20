@@ -1128,11 +1128,10 @@ async function openWsDrawer() {
   let ws = '';
   try { ws = (await api(`/api/sessions/${sid}/workspace`)).workspace || ''; } catch { ws = ''; }
 
-  const mask = document.createElement('div');
-  mask.id = 'wsDrawerMask';
   const drawer = document.createElement('div');
   drawer.id = 'wsDrawer';
   drawer.innerHTML =
+    `<div class="wsd-splitter" id="wsdSplitter" title="左右拖动调整宽度"></div>` +
     `<div class="wsd-head">` +
     `<span class="wsd-title">${icon('folderTree', 15)} 会话工作区</span>` +
     `<span class="wsd-ws mono">${ws ? esc(ws) + '/' : '（公共）'}</span>` +
@@ -1141,10 +1140,39 @@ async function openWsDrawer() {
     `</div>` +
     `<div class="wsd-body"><div class="files-tree" id="wsdTree"><div class="files-tree-head">加载中…</div></div>` +
     `<div class="files-editor" id="wsdEditor"><div class="pc-empty">从左侧选择文件查看 / 编辑。</div></div></div>`;
-  mask.appendChild(drawer);
-  document.body.appendChild(mask);
-  mask.onclick = (e) => { if (e.target === mask) closeWsDrawer(); };
+  document.body.appendChild(drawer);
   drawer.querySelector('#wsdClose').onclick = closeWsDrawer;
+
+  // 宽度：记忆值 + 主区让位（真分栏，两侧窗口大小可拖）
+  const applyW = (w) => {
+    const ww = Math.max(340, Math.min(Math.round(w), Math.max(340, window.innerWidth - 360)));
+    drawer.style.width = ww + 'px';
+    const m = $('main');
+    if (m) m.style.marginRight = ww + 'px';
+    return ww;
+  };
+  applyW(Number(localStorage.getItem('myagentWsDrawerW') || 0) || Math.min(640, Math.floor(window.innerWidth * 0.42)));
+
+  // 分隔条拖拽：左右调整 两栏 宽度
+  const sp = drawer.querySelector('#wsdSplitter');
+  sp.onmousedown = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = drawer.getBoundingClientRect().width;
+    sp.classList.add('dragging');
+    const move = (ev) => {
+      ev.preventDefault();
+      applyW(startW + (startX - ev.clientX));
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      sp.classList.remove('dragging');
+      try { localStorage.setItem('myagentWsDrawerW', String(Math.round(drawer.getBoundingClientRect().width))); } catch { /* ignore */ }
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  };
   drawer.querySelector('#wsdSet').onclick = async () => {
     const p = prompt('指定本会话的工作区（相对平台根的目录，留空恢复公共工作区）：', ws);
     if (p === null) return;
@@ -1216,8 +1244,10 @@ async function openWsDrawer() {
 }
 
 function closeWsDrawer() {
-  const m = $('wsDrawerMask');
-  if (m) m.remove();
+  const d = $('wsDrawer');
+  if (d) d.remove();
+  const m = $('main');
+  if (m) m.style.marginRight = ''; // 恢复对话区宽度
 }
 
 /* ---------------- 提示词模板库（# 触发 / /tpl 命令 / 设置页管理） ---------------- */
@@ -3246,9 +3276,12 @@ function boot() {
       openFindBar();
       return;
     }
-    if (e.key === 'Escape' && findState.open) {
+    if (e.key === 'Escape') {
       e.preventDefault();
-      closeFindBar();
+      if ($('wsDrawer')) { closeWsDrawer(); return; }
+      if (findState.open) { closeFindBar(); return; }
+      const mm = $('meta');
+      if (mm && mm.style.display !== 'none') { mm.style.display = 'none'; }
     }
   });
   for (const t of document.querySelectorAll('.tab')) t.onclick = () => switchTab(t.dataset.tab);
