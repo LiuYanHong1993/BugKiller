@@ -1128,20 +1128,31 @@ async function openWsDrawer() {
   let ws = '';
   try { ws = (await api(`/api/sessions/${sid}/workspace`)).workspace || ''; } catch { ws = ''; }
 
+  const choose = () => {
+    const p = prompt('选择本会话的工作区目录（相对平台根，如 ws/myproject；留空恢复公共工作区）：', ws);
+    if (p === null) return;
+    api(`/api/sessions/${sid}/workspace`, { method: 'POST', body: JSON.stringify({ path: p }) })
+      .then((r) => {
+        appendNote(`📁 工作区已${r.workspace ? '设为「' + r.workspace + '」' : '恢复为公共工作区'}`);
+        openWsDrawer(); // 重开刷新
+      })
+      .catch((e) => alert('设置失败：' + e.message));
+  };
+
   const drawer = document.createElement('div');
   drawer.id = 'wsDrawer';
   drawer.innerHTML =
     `<div class="wsd-splitter" id="wsdSplitter" title="左右拖动调整宽度"></div>` +
     `<div class="wsd-head">` +
     `<span class="wsd-title">${icon('folderTree', 15)} 会话工作区</span>` +
-    `<span class="wsd-ws mono">${ws ? esc(ws) + '/' : '（公共）'}</span>` +
-    `<button type="button" class="pbtn" id="wsdSet" title="指定本会话的工作区目录">指定</button>` +
+    `<span class="wsd-ws mono">${ws ? esc(ws) + '/' : '未选择'}</span>` +
+    `<button type="button" class="pbtn ${ws ? '' : 'accent'}" id="wsdSet">${ws ? '修改工作区' : '选择工作区'}</button>` +
     `<button type="button" class="pbtn" id="wsdClose">${icon('x', 13)}</button>` +
     `</div>` +
-    `<div class="wsd-body"><div class="files-tree" id="wsdTree"><div class="files-tree-head">加载中…</div></div>` +
-    `<div class="files-editor" id="wsdEditor"><div class="pc-empty">从左侧选择文件查看 / 编辑。</div></div></div>`;
+    `<div class="wsd-body" id="wsdBody"><div class="pc-empty" style="margin:auto">加载中…</div></div>`;
   document.body.appendChild(drawer);
   drawer.querySelector('#wsdClose').onclick = closeWsDrawer;
+  drawer.querySelector('#wsdSet').onclick = choose;
 
   // 宽度：记忆值 + 主区让位（真分栏，两侧窗口大小可拖）
   const applyW = (w) => {
@@ -1173,20 +1184,32 @@ async function openWsDrawer() {
     document.addEventListener('mousemove', move);
     document.addEventListener('mouseup', up);
   };
-  drawer.querySelector('#wsdSet').onclick = async () => {
-    const p = prompt('指定本会话的工作区（相对平台根的目录，留空恢复公共工作区）：', ws);
-    if (p === null) return;
-    try {
-      const r = await api(`/api/sessions/${sid}/workspace`, { method: 'POST', body: JSON.stringify({ path: p }) });
-      appendNote(`📁 工作区已切换为「${r.workspace || '平台公共工作区'}」`);
-      openWsDrawer(); // 重开刷新
-    } catch (e) {
-      alert('设置失败：' + e.message);
-    }
-  };
 
-  const treeBox = drawer.querySelector('#wsdTree');
-  const editorBox = drawer.querySelector('#wsdEditor');
+  const bodyEl = drawer.querySelector('#wsdBody');
+
+  // 未选择工作区 → 空页面 + 选择按钮（不展示公共工作区内容）
+  if (!ws) {
+    bodyEl.innerHTML =
+      `<div class="wsd-empty">` +
+      `<div class="we-ic">${icon('folderTree', 44)}</div>` +
+      `<div class="we-t">尚未为本会话选择工作区</div>` +
+      `<div class="we-s">选择后，agent 读写、@ 提及与文件浏览都将使用该目录</div>` +
+      `<button type="button" class="pbtn accent" id="weChoose" style="padding:7px 22px">选择工作区</button>` +
+      `</div>`;
+    bodyEl.querySelector('#weChoose').onclick = choose;
+    return;
+  }
+
+  // 已选择工作区：加载文件树 + 编辑器
+  const treeBox = document.createElement('div');
+  treeBox.className = 'files-tree';
+  treeBox.innerHTML = '<div class="files-tree-head">加载中…</div>';
+  const editorBox = document.createElement('div');
+  editorBox.className = 'files-editor';
+  editorBox.innerHTML = '<div class="pc-empty">从左侧选择文件查看 / 编辑。</div>';
+  bodyEl.innerHTML = '';
+  bodyEl.appendChild(treeBox);
+  bodyEl.appendChild(editorBox);
   let files = [];
   try {
     files = (await api(`/api/files?session=${encodeURIComponent(sid)}`)).files || [];

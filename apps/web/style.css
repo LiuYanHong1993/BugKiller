@@ -157,6 +157,14 @@ mark.find-hit.active { background: var(--accent); color: #fff; }
 .wsd-body .files-tree, .wsd-body .files-editor { height: 100%; }
 #wsdTreeBody { overflow-y: auto; max-height: calc(100% - 30px); }
 #feBody { height: calc(100% - 46px); }
+.wsd-body { align-items: stretch; }
+.wsd-empty {
+  margin: auto; text-align: center; padding: 40px 24px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.wsd-empty .we-ic { color: var(--muted); opacity: 0.7; }
+.wsd-empty .we-t { font-size: 14px; font-weight: 700; color: var(--text); }
+.wsd-empty .we-s { font-size: 12px; color: var(--muted); max-width: 300px; line-height: 1.7; }
 
 /* 工作区文件浏览器 */
 #streamScroll.no-scroll { overflow: hidden; }
