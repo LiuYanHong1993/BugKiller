@@ -1150,6 +1150,7 @@ async function openWsDrawer() {
     `</div>` +
     `<div class="wsd-body" id="wsdBody"><div class="pc-empty" style="margin:auto">加载中…</div></div>`;
   document.body.appendChild(drawer);
+  drawer.dataset.sid = sid; // 标记归属会话：切换对话时据此自动重渲染
   drawer.querySelector('#wsdClose').onclick = closeWsDrawer;
   drawer.querySelector('#wsdSet').onclick = choose;
 
@@ -1850,6 +1851,9 @@ async function openSession(id, title, opts) {
   state.traceSeq = 0;
   $('sessTitle').textContent = state.sessionTitle;
   postToHost({ type: 'session-title', title: state.sessionTitle });
+  // 工作区抽屉跟随对话：切换会话时自动重渲染为新会话的工作区
+  const wd = $('wsDrawer');
+  if (wd && wd.dataset.sid !== id) openWsDrawer(); // 异步重渲染，不阻塞切换
   setSessStatus(false, '');
   $('stream').innerHTML = '';
   $('send').disabled = false;
