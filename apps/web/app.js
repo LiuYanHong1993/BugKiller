@@ -1128,16 +1128,15 @@ async function openWsDrawer() {
   let ws = '';
   try { ws = (await api(`/api/sessions/${sid}/workspace`)).workspace || ''; } catch { ws = ''; }
 
-  const choose = () => {
-    const p = prompt('选择本会话的工作区目录（相对平台根，如 ws/myproject；留空恢复公共工作区）：', ws);
-    if (p === null) return;
-    api(`/api/sessions/${sid}/workspace`, { method: 'POST', body: JSON.stringify({ path: p }) })
-      .then((r) => {
-        appendNote(`📁 工作区已${r.workspace ? '设为「' + r.workspace + '」' : '恢复为公共工作区'}`);
-        openWsDrawer(); // 重开刷新
-      })
-      .catch((e) => alert('设置失败：' + e.message));
-  };
+  const choose = () => openWsChoose(async (path) => {
+    try {
+      const r = await api(`/api/sessions/${sid}/workspace`, { method: 'POST', body: JSON.stringify({ path }) });
+      appendNote(`📁 工作区已${r.workspace ? '设为「' + r.workspace + '」' : '恢复为公共工作区'}`);
+      openWsDrawer(); // 重开刷新
+    } catch (e) {
+      alert('设置失败：' + e.message);
+    }
+  });
 
   const drawer = document.createElement('div');
   drawer.id = 'wsDrawer';
@@ -1274,6 +1273,60 @@ function closeWsDrawer() {
 }
 
 /* ---------------- 提示词模板库（# 触发 / /tpl 命令 / 设置页管理） ---------------- */
+
+/** 原生文件夹选择器（客户端 WebView2 桥接 C# FolderBrowserDialog）；浏览器模式返回 null */
+function pickLocalFolder() {
+  return new Promise((resolve) => {
+    if (!(window.chrome && window.chrome.webview)) { resolve(null); return; }
+    let done = false;
+    window.__applyWsPick = (p) => {
+      if (done) return;
+      done = true;
+      try { delete window.__applyWsPick; } catch { /* ignore */ }
+      resolve(p);
+    };
+    postToHost({ type: 'pick-folder' });
+    setTimeout(() => {
+      if (!done) { done = true; try { delete window.__applyWsPick; } catch { /* ignore */ } resolve(null); }
+    }, 180000); // 选择框最长等 3 分钟
+  });
+}
+
+/** 工作区选择弹窗（深色；客户端带原生文件夹选择器，也可手动输入任意路径） */
+function openWsChoose(apply) {
+  const inClient = !!(window.chrome && window.chrome.webview);
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  const box = document.createElement('div');
+  box.className = 'modal-box';
+  box.innerHTML =
+    `<div class="modal-title">选择工作区</div>` +
+    `<div class="modal-msg">agent 读写、@ 提及与文件浏览都将使用该目录。可选择任意本地文件夹（不限于平台目录）。</div>` +
+    (inClient ? `<button type="button" class="pbtn wsc-btn" id="wscBrowse">浏览本地文件夹…</button>` : '') +
+    `<div class="form-row"><label>或手动输入路径</label><input id="wscPath" placeholder="D:\\projects\\demo（或相对路径 ws/demo）" /></div>` +
+    `<div class="modal-ops"><button type="button" class="pbtn" data-x>取消</button><button type="button" class="pbtn accent" data-ok>保存</button></div>`;
+  mask.appendChild(box);
+  document.body.appendChild(mask);
+  const close = () => mask.remove();
+  const inp = box.querySelector('#wscPath');
+  const browse = box.querySelector('#wscBrowse');
+  if (browse) {
+    browse.onclick = async () => {
+      const p = await pickLocalFolder();
+      if (p) inp.value = p;
+    };
+  }
+  box.querySelector('[data-x]').onclick = close;
+  mask.onclick = (e) => { if (e.target === mask) close(); };
+  box.querySelector('[data-ok]').onclick = () => {
+    const v = inp.value.trim();
+    if (!v) { inp.focus(); return; }
+    close();
+    apply(v);
+  };
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); box.querySelector('[data-ok]').click(); } });
+  (browse || inp).focus();
+}
 
 async function openFileEditor(wrap, path) {
   const box = wrap.querySelector('#wsdEditor') || wrap.querySelector('#fileEditor') || wrap;

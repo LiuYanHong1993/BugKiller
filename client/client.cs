@@ -1,4 +1,4 @@
-﻿// agent-platform Windows 客户端（原生 WinForms，零外部依赖）
+// agent-platform Windows 客户端（原生 WinForms，零外部依赖）
 //  - 双击即用：未安装 → 一键安装向导（复制载荷 + 写注册表卸载项 + 快捷方式）
 //  - 已安装 → 托盘常驻 + 主窗口（WebView2 内嵌 Web UI；不可用则回退浏览器打开）
 //  - 内核管理：自动探测 Node、拉起 scripts/serve.js、捕获令牌 URL、崩溃自动重启 ×3
@@ -1058,12 +1058,30 @@ namespace AgentPlatform
                 // 保证标题栏 Panel（普通控件）永远可见
                 host.SendToBack();
                 await wv.EnsureCoreWebView2Async(env);
-                // JS → 宿主通道（会话标题上屏等）
+                // JS → 宿主通道（会话标题上屏 / 后台通知 / 原生文件夹选择）
                 wv.CoreWebView2.WebMessageReceived += delegate(object s2, Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs e2)
                 {
                     try
                     {
                         string json = e2.WebMessageAsJson;
+                        // 原生文件夹选择器：选择结果经 ExecuteScriptAsync 回传 JS
+                        if (json != null && json.IndexOf("pick-folder", StringComparison.Ordinal) >= 0)
+                        {
+                            try
+                            {
+                                string picked = null;
+                                using (FolderBrowserDialog fb = new FolderBrowserDialog())
+                                {
+                                    fb.Description = "选择会话工作区文件夹";
+                                    fb.ShowNewFolderButton = true;
+                                    if (fb.ShowDialog() == DialogResult.OK) picked = fb.SelectedPath;
+                                }
+                                string payload = picked == null ? "null" : "\"" + picked.Replace("\\", "\\\\") + "\"";
+                                wv.CoreWebView2.ExecuteScriptAsync("window.__applyWsPick && window.__applyWsPick(" + payload + ");");
+                            }
+                            catch (Exception ex3) { ClientController.Log("[pick-folder] " + ex3.Message); }
+                            return;
+                        }
                         if (Program.WebMessageSink != null) Program.WebMessageSink(json);
                         if (Program.NotifySink != null) Program.NotifySink(json);
                     }

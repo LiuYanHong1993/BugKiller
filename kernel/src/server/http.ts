@@ -73,18 +73,26 @@ export function startServer(deps: ServerDeps): Promise<string> {
     return root;
   }
 
-  /** 校验并解析会话工作区相对路径（空 = 平台根） */
+  /** 校验并解析会话工作区：空 = 平台根；相对路径 = 平台根下；**绝对路径 = 任意本地文件夹**（禁平台敏感目录/盘根/系统目录） */
   function resolveWorkspace(baseRoot: string, ws: string): string {
-    const norm = String(ws ?? '').trim().split('\\').join('/').replace(/^\/+/, '').replace(/\/+$/, '');
-    if (!norm) return baseRoot;
-    for (const banned of ['data', 'keys', 'dist', 'node_modules', '.git', 'webview2-profile', 'attachments']) {
-      if (norm === banned || norm.startsWith(banned + '/')) {
-        throw new Error(`工作区不可指向受保护目录：${norm}`);
+    const raw = String(ws ?? '').trim();
+    if (!raw) return baseRoot;
+    const isAbs = /^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith('\\\\') || raw.startsWith('/');
+    const abs = isAbs ? resolve(raw) : resolve(baseRoot, raw.split('\\').join('/').replace(/^\/+/, '').replace(/\/+$/, ''));
+    const normRel = relative(baseRoot, abs).split(sep).join('/');
+    if (!normRel.startsWith('..')) {
+      // 位于平台内部：禁敏感目录
+      for (const banned of ['data', 'keys', 'dist', 'node_modules', '.git', 'webview2-profile', 'attachments']) {
+        if (normRel === banned || normRel.startsWith(banned + '/')) {
+          throw new Error(`工作区不可指向受保护目录：${normRel}`);
+        }
       }
+    } else {
+      // 平台外部：禁盘根与系统目录
+      if (/^[A-Za-z]:\\?$/.test(abs)) throw new Error('不能选择磁盘根目录作为工作区');
+      const lower = abs.toLowerCase();
+      if (lower === 'c:\\windows' || lower.startsWith('c:\\windows\\')) throw new Error('不能选择系统目录');
     }
-    const abs = resolve(baseRoot, norm);
-    const rel = relative(baseRoot, abs);
-    if (rel.startsWith('..') || rel.includes('..')) throw new Error(`工作区越界：${norm}`);
     return abs;
   }
 
@@ -648,13 +656,13 @@ export function startServer(deps: ServerDeps): Promise<string> {
           const body = await readJson(req);
           try {
             const root = await setSessionWorkspace(sid, String(body?.path ?? ''));
-            return json(res, 200, { ok: true, workspace: relative(deps.workspaceRoot, root).split(sep).join('/') });
+            return json(res, 200, { ok: true, workspace: root });
           } catch (err) {
             return json(res, 400, { error: (err as Error).message });
           }
         }
         const root = await getWorkspaceRoot(sid);
-        return json(res, 200, { workspace: relative(deps.workspaceRoot, root).split(sep).join('/') });
+        return json(res, 200, { workspace: root });
       }
 
       // ---- 写操作单文件回滚（preimage 恢复） ----
