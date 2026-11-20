@@ -2050,6 +2050,8 @@ function appendUser(text, ts, seq) {
 function finalizeTurn(replyTs) {
   const turn = state.currentTurn;
   if (!turn || !turn.isConnected) return;
+  // 收尾：移除流式光标（.streaming 的 ::after 闪烁块）
+  for (const s of turn.querySelectorAll('.msg.assistant.streaming')) s.classList.remove('streaming');
   const steps = Number(turn.dataset.steps || 0);
   const fails = Number(turn.dataset.fails || 0);
   const start = Number(turn.dataset.start || 0);
@@ -2099,6 +2101,55 @@ function quoteIntoInput(text) {
   fitInput();
 }
 
+/** 给 assistant 消息挂悬停操作（⧉ 复制 / ↻ 重新生成 / ❝ 引用）；getText 支持流式动态文本 */
+function attachAssistantActions(div, getText) {
+  const cp = document.createElement('button');
+  cp.type = 'button';
+  cp.className = 'a-copy';
+  cp.title = '复制回复';
+  cp.textContent = '⧉';
+  cp.onclick = () => {
+    const done = () => { cp.textContent = '✓'; setTimeout(() => { cp.textContent = '⧉'; }, 1200); };
+    const txt = String(getText() || '');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(done).catch(done);
+    } else { done(); }
+  };
+  div.appendChild(cp);
+
+  const regen = document.createElement('button');
+  regen.type = 'button';
+  regen.className = 'a-copy';
+  regen.title = '重新生成此回复';
+  regen.textContent = '↻';
+  regen.onclick = async () => {
+    const t = div.closest('.turn');
+    const userSeq = Number((t && t.dataset.userSeq) || 0);
+    const userText = (t && t.dataset.userText) || '';
+    if (!userSeq || !userText) { appendNote('无法定位原消息', true); return; }
+    if (!(await uiConfirm('重新生成这条回复？该回复之后的内容将被丢弃。', { title: '重新生成', okText: '重新生成' }))) return;
+    try {
+      await api(`/api/sessions/${state.sessionId}/truncate`, { method: 'POST', body: JSON.stringify({ beforeSeq: userSeq }) });
+      cancelEditing();
+      await openSession(state.sessionId, state.sessionTitle, { skipWelcome: true });
+      $('input').value = userText;
+      fitInput();
+      send();
+    } catch (e) {
+      appendNote('重新生成失败：' + e.message, true);
+    }
+  };
+  div.appendChild(regen);
+
+  const q = document.createElement('button');
+  q.type = 'button';
+  q.className = 'a-copy';
+  q.title = '引用此回复继续提问';
+  q.textContent = '❝';
+  q.onclick = () => quoteIntoInput(String(getText() || ''));
+  div.appendChild(q);
+}
+
 function appendMsg(kind, text, ts) {
   const turn = currentTurnEl();
   const div = document.createElement('div');
@@ -2106,54 +2157,10 @@ function appendMsg(kind, text, ts) {
   div.innerHTML = `<div class="body md">${md(text)}</div>`;
   turn.appendChild(div);
   if (kind === 'assistant') {
-    // 悬停复制原始 Markdown
-    const cp = document.createElement('button');
-    cp.type = 'button';
-    cp.className = 'a-copy';
-    cp.title = '复制回复';
-    cp.textContent = '⧉';
-    cp.onclick = () => {
-      const done = () => { cp.textContent = '✓'; setTimeout(() => { cp.textContent = '⧉'; }, 1200); };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text ?? '').then(done).catch(done);
-      } else { done(); }
-    };
-    div.appendChild(cp);
-    // 重新生成（回到该轮 user 消息之前，重发同一条）
-    const regen = document.createElement('button');
-    regen.type = 'button';
-    regen.className = 'a-copy';
-    regen.title = '重新生成此回复';
-    regen.textContent = '↻';
-    regen.onclick = async () => {
-      const t = div.closest('.turn');
-      const userSeq = Number((t && t.dataset.userSeq) || 0);
-      const userText = (t && t.dataset.userText) || '';
-      if (!userSeq || !userText) { appendNote('无法定位原消息', true); return; }
-      if (!(await uiConfirm('重新生成这条回复？该回复之后的内容将被丢弃。', { title: '重新生成', okText: '重新生成' }))) return;
-      try {
-        await api(`/api/sessions/${state.sessionId}/truncate`, { method: 'POST', body: JSON.stringify({ beforeSeq: userSeq }) });
-        cancelEditing();
-        await openSession(state.sessionId, state.sessionTitle, { skipWelcome: true });
-        $('input').value = userText;
-        fitInput();
-        send();
-      } catch (e) {
-        appendNote('重新生成失败：' + e.message, true);
-      }
-    };
-    div.appendChild(regen);
-    // 引用回复
-    const q = document.createElement('button');
-    q.type = 'button';
-    q.className = 'a-copy';
-    q.title = '引用此回复继续提问';
-    q.textContent = '❝';
-    q.onclick = () => quoteIntoInput(text || '');
-    div.appendChild(q);
+    attachAssistantActions(div, () => text);
     if (ts) finalizeTurn(ts);
   }
-  scrollBottom();
+  return div;
 }
 
 function appendNote(text, isErr) {
@@ -2413,6 +2420,7 @@ async function send() {
       currentTurnEl().appendChild(div);
       streamBody = div.querySelector('.body');
       streamText = '';
+      attachAssistantActions(div, () => streamText); // 流式块同样有 复制/重新生成/引用
     }
   };
   const scheduleRender = () => {
