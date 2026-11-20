@@ -500,9 +500,9 @@ function bindListDropTarget(list) {
   });
 }
 
-const ICON_TRASH = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h10M6.2 4.5V3.2a1 1 0 011-1h1.6a1 1 0 011 1v1.3M4.8 4.5l.55 8.2a1 1 0 001 .93h3.3a1 1 0 001-.93l.55-8.2" stroke-linecap="round"/></svg>';
-const ICON_PIN = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.6 2.3l4.1 4.1-2.3.75-2.1 2.1-.5 2.2-4.25-4.25 2.2-.5 2.1-2.1.75-2.3z" stroke-linejoin="round"/><path d="M6.6 9.4L2.8 13.2" stroke-linecap="round"/></svg>';
-const ICON_DOTS = '<svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><circle cx="3" cy="8" r="1.25"/><circle cx="8" cy="8" r="1.25"/><circle cx="13" cy="8" r="1.25"/></svg>';
+const ICON_TRASH = icon('trash2', 12);
+const ICON_PIN = icon('pin', 12);
+const ICON_DOTS = icon('ellipsis', 12);
 
 function sessionItem(s) {
   const btn = document.createElement('button');
@@ -824,10 +824,10 @@ function bumpAgentUse(id) {
 }
 
 const OFFICE_TABS = [
-  ['experts', '🧑‍🏫 专家'],
-  ['skills', '⚙ 技能'],
-  ['connectors', '🔌 连接器'],
-  ['knowledge', '📚 知识库'],
+  ['experts', 'users', '专家'],
+  ['skills', 'wrench', '技能'],
+  ['connectors', 'plug', '连接器'],
+  ['knowledge', 'bookOpen', '知识库'],
 ];
 
 function toolDesc(name) {
@@ -865,7 +865,7 @@ async function renderOfficePage() {
   const tabRow = document.createElement('div');
   tabRow.className = 'office-tabs';
   tabRow.innerHTML =
-    OFFICE_TABS.map(([id, nm]) => `<button type="button" class="otab ${office === id ? 'active' : ''}" data-tab="${id}">${nm}</button>`).join('') +
+    OFFICE_TABS.map(([id, ic, nm]) => `<button type="button" class="otab ${office === id ? 'active' : ''}" data-tab="${id}">${icon(ic, 14)} ${nm}</button>`).join('') +
     `<span class="spacer"></span><span class="allcat">全部分类 ▾</span>`;
   stream.appendChild(tabRow);
   for (const b of tabRow.querySelectorAll('.otab')) {
@@ -1153,7 +1153,7 @@ async function renderFilesPage() {
       row.className = 'tree-row dir';
       row.style.paddingLeft = `${8 + depth * 14}px`;
       const collapsed = state.treeCollapsed.has(pathKey);
-      row.innerHTML = `<span class="tchev">${collapsed ? '▸' : '▾'}</span>📁 ${esc(dirName)}`;
+      row.innerHTML = `<span class="tchev">${collapsed ? '▸' : '▾'}</span>${icon('folder', 13)} <span style="margin-left:5px">${esc(dirName)}</span>`;
       container.appendChild(row);
       const sub = document.createElement('div');
       sub.style.display = collapsed ? 'none' : 'block';
@@ -1172,7 +1172,7 @@ async function renderFilesPage() {
       row.type = 'button';
       row.className = 'tree-row file';
       row.style.paddingLeft = `${8 + depth * 14 + 14}px`;
-      row.innerHTML = `📄 ${esc(f.name)}<span class="tsize">${fmtNum(f.size)}B</span>`;
+      row.innerHTML = `${icon('fileText', 13)} <span style="margin-left:5px">${esc(f.name)}</span><span class="tsize">${fmtNum(f.size)}B</span>`;
       row.onclick = () => openFileEditor(wrap, f.path);
       container.appendChild(row);
     }
@@ -2244,13 +2244,13 @@ function appendUser(text, ts, seq) {
   block.className = 'msg user';
   block.innerHTML = `<div class="ut">${esc(text ?? '')}</div>` +
     `<div class="u-meta"><span class="u-time">${fmtClock(ts)}</span>` +
-    `<button class="copy-btn" type="button" data-edit title="编辑并重发">✎</button>` +
-    `<button class="copy-btn" type="button" data-quote title="引用这条消息">❝</button>` +
-    `<button class="copy-btn" type="button" data-copy title="复制">⧉</button></div>`;
+    `<button class="copy-btn" type="button" data-edit title="编辑并重发">${icon('pencil', 12)}</button>` +
+    `<button class="copy-btn" type="button" data-quote title="引用这条消息">${icon('quote', 12)}</button>` +
+    `<button class="copy-btn" type="button" data-copy title="复制">${icon('copy', 12)}</button></div>`;
   block.querySelector('[data-quote]').onclick = () => quoteIntoInput(text || '');
   block.querySelector('[data-copy]').onclick = () => {
     const btn = block.querySelector('[data-copy]');
-    const done = () => { btn.textContent = '✓'; setTimeout(() => { btn.textContent = '⧉'; }, 1200); };
+    const done = () => { btn.innerHTML = icon('circleCheck', 12); setTimeout(() => { btn.innerHTML = icon('copy', 12); }, 1200); };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text ?? '').then(done).catch(done);
     } else { done(); }
@@ -2362,9 +2362,9 @@ function attachAssistantActions(div, getText) {
   cp.type = 'button';
   cp.className = 'a-copy';
   cp.title = '复制回复';
-  cp.textContent = '⧉';
+  cp.innerHTML = icon('copy', 13);
   cp.onclick = () => {
-    const done = () => { cp.textContent = '✓'; setTimeout(() => { cp.textContent = '⧉'; }, 1200); };
+    const done = () => { cp.innerHTML = icon('circleCheck', 13); setTimeout(() => { cp.innerHTML = icon('copy', 13); }, 1200); };
     const txt = String(getText() || '');
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(txt).then(done).catch(done);
@@ -2376,7 +2376,7 @@ function attachAssistantActions(div, getText) {
   regen.type = 'button';
   regen.className = 'a-copy';
   regen.title = '重新生成此回复';
-  regen.textContent = '↻';
+  regen.innerHTML = icon('refreshCw', 13);
   regen.onclick = async () => {
     const { userSeq, userText } = await locateTurnOrigin(div, getText);
     if (!userSeq || !userText) { appendNote('无法定位原消息（该会话事件流中找不到对应提问）', true); return; }
@@ -2398,7 +2398,7 @@ function attachAssistantActions(div, getText) {
   q.type = 'button';
   q.className = 'a-copy';
   q.title = '引用此回复继续提问';
-  q.textContent = '❝';
+  q.innerHTML = icon('quote', 13);
   q.onclick = () => quoteIntoInput(String(getText() || ''));
   div.appendChild(q);
 }
@@ -3122,6 +3122,19 @@ function showWelcomeStandalone() {
 }
 
 function boot() {
+  // 图标注入（iconify Lucide，data-icon 占位符统一填充）
+  for (const el of document.querySelectorAll('[data-icon]')) {
+    const name = el.getAttribute('data-icon');
+    const size = el.classList.contains('hic') ? 13 : (el.classList.contains('ic') ? 15 : 16);
+    el.innerHTML = icon(name, size);
+  }
+  // composer 按钮图标
+  const attachBtn = $('attachBtn');
+  if (attachBtn) attachBtn.innerHTML = icon('plus', 14);
+  const paramsBtn = $('paramsBtn');
+  if (paramsBtn) paramsBtn.innerHTML = icon('slidersHorizontal', 14);
+  const sendBtn = $('send');
+  if (sendBtn) sendBtn.innerHTML = icon('arrowUp', 14);
   applyTheme(loadTheme());
   state.groups = loadGroups();
   state.collapsedGroups = loadSet('myagentGroupsCollapsed');

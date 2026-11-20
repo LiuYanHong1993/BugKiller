@@ -116,6 +116,13 @@ mark.find-hit.active { background: var(--accent); color: #fff; }
 ::-webkit-scrollbar-thumb:hover { background: #3a3d44; background-clip: content-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* 图标占位（iconify Lucide 注入后统一尺寸/对齐） */
+.menu-item .ic, .hicon .hic, .hchip .hic { display: inline-flex; align-items: center; justify-content: center; }
+.menu-item .ic svg, .hicon .hic svg, .hchip .hic svg { display: block; }
+.tree-row svg, .otab svg, #slashPanel .sitem svg, #mentionPanel .sitem svg, #tplPanel .sitem svg { flex: none; vertical-align: -2px; }
+.a-copy svg, .copy-btn svg, .q svg, .ec-more svg { display: block; }
+#paramsBtn svg, #attachBtn svg, #send svg { display: block; }
+
 /* 工作区文件浏览器 */
 #streamScroll.no-scroll { overflow: hidden; }
 #streamScroll.no-scroll #stream { height: 100%; display: flex; flex-direction: column; }

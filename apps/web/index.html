@@ -11,23 +11,23 @@
     <aside id="sidebar">
       <nav class="side-menu">
         <button class="menu-item primary" id="newSession" title="新建会话">
-          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 3.5h11v8h-6l-3 2.5v-2.5h-2z" stroke-linejoin="round"/></svg>
+          <span class="ic" data-icon="messageSquarePlus"></span>
           <span>新建会话</span>
         </button>
         <button class="menu-item" id="navProjects" title="项目 / 产品管理">
-          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="2.5" width="10" height="12" rx="1.2"/><path d="M5.5 6h5M5.5 9h5M5.5 12h3" stroke-linecap="round"/></svg>
+          <span class="ic" data-icon="folderKanban"></span>
           <span>项目 / 产品管理</span>
         </button>
         <button class="menu-item" id="navOffice" title="办公套件">
-          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.8l5.5 2.6v7.2L8 14.2 2.5 11.6V4.4z" stroke-linejoin="round"/><path d="M2.7 4.6L8 7.1l5.3-2.5M8 7.1v7" stroke-linecap="round"/></svg>
+          <span class="ic" data-icon="briefcase"></span>
           <span>办公套件</span>
         </button>
         <button class="menu-item" id="navFiles" title="工作区文件">
-          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.2a1 1 0 011-1h3l1.3 1.6h4.7a1 1 0 011 1v6a1 1 0 01-1 1h-9a1 1 0 01-1-1z" stroke-linejoin="round"/></svg>
+          <span class="ic" data-icon="folderTree"></span>
           <span>工作区文件</span>
         </button>
         <button class="menu-item" id="navAgents" title="云智能体">
-          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9.5 2.2c2.6.6 4.2 2.4 4.3 5-1.4 1.3-3 1.9-4.8 1.9L6.4 11.7l-2.1-2.1L6.9 7c0-1.8.6-3.4 1.9-4.8z" stroke-linejoin="round"/><circle cx="10.6" cy="5.4" r="0.9"/><path d="M4.5 11.5L2.5 13.5" stroke-linecap="round"/></svg>
+          <span class="ic" data-icon="bot"></span>
           <span>云智能体</span>
         </button>
       </nav>
@@ -35,13 +35,13 @@
         <span>会话</span>
         <span class="spacer"></span>
         <button class="hicon" id="archToggle" title="显示/隐藏已归档">
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="3.4" rx="1"/><path d="M3.5 6.4V12a1 1 0 001 1h7a1 1 0 001-1V6.4M6.5 9h3" stroke-linecap="round"/></svg>
+          <span data-icon="archive" class="hic"></span>
         </button>
         <button class="hicon" id="searchToggle" title="搜索会话">
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>
+          <span data-icon="search" class="hic"></span>
         </button>
         <button class="hchip" id="projFilter" title="按分组筛选">
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3" width="11" height="2.4" rx="0.6"/><rect x="2.5" y="6.8" width="11" height="2.4" rx="0.6"/><rect x="2.5" y="10.6" width="11" height="2.4" rx="0.6"/></svg>
+          <span data-icon="listFilter" class="hic"></span>
           <span id="projFilterName">项目</span>
           <span class="cv">▾</span>
         </button>
@@ -96,6 +96,7 @@
       </div>
     </main>
   </div>
+  <script src="icons.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
