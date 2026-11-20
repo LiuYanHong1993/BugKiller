@@ -431,6 +431,27 @@ button.session-item {
 .modal-box .wsc-btn { width: 100%; padding: 8px; margin-bottom: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .modal-box .form-row label { display: block; color: var(--muted); font-size: 11.5px; margin-bottom: 5px; }
 
+/* 权限级别菜单（点击工作区权限徽章） */
+.perm-menu {
+  position: fixed; z-index: 130; width: 300px;
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 12px; padding: 6px;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.5);
+}
+.perm-menu .pm-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: transparent; border: 0; border-radius: 8px;
+  padding: 9px 11px; cursor: pointer; text-align: left;
+  font: 12.5px/1.5 inherit; font-family: inherit; color: var(--text-dim);
+}
+.perm-menu .pm-item:hover { background: var(--panel3); color: var(--text); }
+.perm-menu .pm-item.active { background: var(--accent-soft); }
+.perm-menu .pm-ic { flex: none; display: inline-flex; color: var(--accent); }
+.perm-menu .pm-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.perm-menu .pm-tx b { color: var(--text); font-size: 12.5px; }
+.perm-menu .pm-tx i { color: var(--muted); font-size: 11px; font-style: normal; }
+.perm-menu .pm-check { flex: none; color: var(--accent); display: inline-flex; }
+
 /* 审计视图 */
 .audit-day {
   color: var(--muted); font-size: 11px; font-weight: 600;
