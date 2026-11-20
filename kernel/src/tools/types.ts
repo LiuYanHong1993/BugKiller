@@ -21,6 +21,8 @@ export interface ToolContext {
   sandbox?: {
     writeFile(absPath: string, content: string): Promise<{ bytes: number; guarded: boolean }>;
   };
+  /** 仅可查看模式：写文件 / 命令执行被禁止（权限菜单切换） */
+  readOnly?: boolean;
 }
 
 export interface ToolResult {

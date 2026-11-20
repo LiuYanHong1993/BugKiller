@@ -31,6 +31,7 @@ export const runCommandTool: ToolDef = {
     };
   },
   async execute(args, ctx) {
+    if (ctx.readOnly) return { ok: false, output: '当前权限为「仅可查看」：命令执行被禁止（可在输入框上方的权限菜单切换）' };
     const command = String(args.command ?? '').trim();
     if (!command) return { ok: false, output: '缺少 command 参数' };
     const timeoutMs = Math.min(Math.max(Number(args.timeoutMs ?? DEFAULT_TIMEOUT) || DEFAULT_TIMEOUT, 1_000), 300_000);

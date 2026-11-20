@@ -108,6 +108,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
   // 运行时可变设置（设置页在线修改；持久层见 data/kernel-settings.json）
   const runtime = {
     autoApprove: deps.policy.autoApprove === true,
+    mode: deps.policy.mode || 'workspace-write',
     vision: deps.vision ? { baseUrl: deps.vision.baseUrl, model: deps.vision.model } : null,
     params: {
       temperature: typeof deps.params?.temperature === 'number' ? deps.params.temperature : 0.4,
@@ -156,7 +157,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
     await writeFile(
       resolve(dir, 'kernel-settings.json'),
       JSON.stringify(
-        { baseUrl: cfg.baseUrl, model: cfg.model, autoApprove: runtime.autoApprove, vision: runtime.vision, params: runtime.params },
+        { baseUrl: cfg.baseUrl, model: cfg.model, autoApprove: runtime.autoApprove, mode: runtime.mode, vision: runtime.vision, params: runtime.params },
         null,
         2,
       ),
@@ -205,7 +206,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
         return json(res, 200, {
           model: cfg.model,
           baseUrl: cfg.baseUrl,
-          mode: deps.policy.mode,
+          mode: runtime.mode,
           autoApprove: runtime.autoApprove,
           vision: runtime.vision,
           params: runtime.params,
@@ -223,6 +224,8 @@ export function startServer(deps: ServerDeps): Promise<string> {
           model: typeof body?.model === 'string' && body.model ? String(body.model) : undefined,
         });
         if (typeof body?.autoApprove === 'boolean') runtime.autoApprove = body.autoApprove;
+        // 权限模式：仅可查看（agent 只读）⇄ 工作区写
+        if (body?.mode === 'read-only' || body?.mode === 'workspace-write') runtime.mode = body.mode;
         // 模型参数（temperature 0-1 / maxTokens 正整数或 null=默认）
         if (body?.params && typeof body.params === 'object') {
           const p = body.params as { temperature?: unknown; maxTokens?: unknown };
@@ -752,6 +755,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
       log: deps.log,
       sessionId,
       sandbox,
+      readOnly: runtime.mode === 'read-only',
       approval: async (req) => {
         // 审批记忆：本会话已允许过的工具直接放行
         if (allowlist.get(sessionId)?.has(req.tool)) {

@@ -261,8 +261,8 @@ async function loadState() {
     state.serverState = s;
     $('modelSel').innerHTML = `${esc(s.model)} <span>▾</span>`;
     const pb = $('permBadge');
-    if (s.autoApprove) { pb.innerHTML = `${icon('zap', 12)} 完全权限`; pb.className = 'cbtn full'; pb.title = '无人值守：写操作自动放行（点击可切换）'; }
-    else if (s.mode === 'read-only') { pb.innerHTML = `${icon('shield', 12)} 只读`; pb.className = 'cbtn'; pb.title = '内核工作区只读'; }
+    if (s.mode === 'read-only') { pb.innerHTML = `${icon('shield', 12)} 仅可查看`; pb.className = 'cbtn'; pb.title = 'agent 只读：写文件与命令被禁止（点击可切换）'; }
+    else if (s.autoApprove) { pb.innerHTML = `${icon('zap', 12)} 完全权限`; pb.className = 'cbtn full'; pb.title = '无人值守：写操作自动放行（点击可切换）'; }
     else { pb.innerHTML = `${icon('shieldCheck', 12)} 工作区权限`; pb.className = 'cbtn ws'; pb.title = '写操作需审批，仅限工作区内（点击可切换）'; }
     const s0 = state.serverState || {};
     if (s0.workspaceRoot) {
@@ -3335,7 +3335,7 @@ function boot() {
     const s = state.serverState || {};
     const menu = document.createElement('div');
     menu.className = 'perm-menu';
-    const cur = s.autoApprove ? 'full' : 'ws';
+    const cur = s.mode === 'read-only' ? 'ro' : (s.autoApprove ? 'full' : 'ws');
     const mk = (key, ic, label, desc) => {
       const b = document.createElement('button');
       b.type = 'button';
@@ -3347,9 +3347,14 @@ function boot() {
       b.onclick = async () => {
         menu.remove();
         if (cur === key) return; // 未变化
+        const body = key === 'ro' ? { mode: 'read-only' }
+          : key === 'full' ? { mode: 'workspace-write', autoApprove: true }
+          : { mode: 'workspace-write', autoApprove: false };
         try {
-          await api('/api/settings', { method: 'POST', body: JSON.stringify({ autoApprove: key === 'full' }) });
-          appendNote(key === 'full' ? '⚡ 已切换为完全权限（写操作自动放行）' : '🛡 已切换为工作区权限（写操作需审批）');
+          await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
+          appendNote(key === 'ro' ? '👁 已切换为仅可查看（agent 写文件与命令被禁止）'
+            : key === 'full' ? '⚡ 已切换为完全权限（写操作自动放行）'
+            : '🛡 已切换为工作区权限（写操作需审批）');
           loadState();
         } catch (err) {
           appendNote('权限切换失败：' + err.message, true);
@@ -3357,6 +3362,7 @@ function boot() {
       };
       menu.appendChild(b);
     };
+    mk('ro', 'shield', '仅可查看', 'agent 只能读取，写文件与命令全部禁止');
     mk('ws', 'shieldCheck', '工作区权限', '写操作弹审批卡确认，仅限工作区内');
     mk('full', 'zap', '完全权限', '无人值守：写操作自动放行，不再弹卡');
     document.body.appendChild(menu);

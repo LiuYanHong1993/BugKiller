@@ -29,6 +29,7 @@ export const writeFileTool: ToolDef = {
     };
   },
   async execute(args, ctx) {
+    if (ctx.readOnly) return { ok: false, output: '当前权限为「仅可查看」：写文件被禁止（可在输入框上方的权限菜单切换）' };
     const rel = String(args.path ?? '');
     if (!rel) return { ok: false, output: '缺少 path 参数' };
 
