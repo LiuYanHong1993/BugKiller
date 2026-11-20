@@ -64,6 +64,25 @@ button:focus, button:focus-visible { outline: none; }
 #mentionPanel .sitem b { color: var(--text); font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #mentionPanel .sitem span { color: var(--muted); font-size: 11px; flex: none; }
 
+/* 提示词模板面板（复用同款样式） */
+#tplPanel {
+  position: absolute; bottom: calc(100% + 8px); left: 12px; right: 12px;
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 6px; max-height: 300px; overflow-y: auto;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); z-index: 60;
+}
+#tplPanel .sitem {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: transparent; border: 0; border-radius: 8px;
+  padding: 7px 12px; cursor: pointer; color: var(--text-dim); text-align: left;
+  font: 12.5px/1.5 inherit; font-family: inherit;
+}
+#tplPanel .sitem:hover { background: var(--panel3); }
+#tplPanel .sitem.active { background: var(--accent-soft); color: var(--text); }
+#tplPanel .sitem b { color: var(--accent); flex: none; width: 110px; }
+#tplPanel .sitem span { color: var(--muted); font-size: 11px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tpl-form { margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--panel2); }
+
 /* 模型参数浮层（⚙ / /params） */
 #paramsPanel {
   position: absolute; bottom: calc(100% + 8px); right: 12px;

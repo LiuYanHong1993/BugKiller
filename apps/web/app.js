@@ -1102,6 +1102,73 @@ function renderOfficeKnowledge(listWrap) {
   }).catch(() => {});
 }
 
+/* ---------------- 提示词模板库（# 触发 / /tpl 命令 / 设置页管理） ---------------- */
+
+const DEFAULT_TPLS = [
+  { id: 'tpl-review', name: '代码审查', text: '请审查以下代码，按缺陷优先列出问题（正确性 / 边界 / 安全 / 可读性）：\n\n```\n\n```' },
+  { id: 'tpl-summarize', name: '总结要点', text: '请把以下内容总结为 5 条要点，每条一行：\n\n' },
+  { id: 'tpl-translate', name: '翻译成英文', text: '请把以下内容翻译成英文，保留 Markdown 格式与代码块：\n\n' },
+];
+
+function loadTemplates() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('myagentPromptTemplates') || 'null');
+    if (Array.isArray(raw)) return raw;
+  } catch { /* ignore */ }
+  return DEFAULT_TPLS.map((x) => ({ ...x }));
+}
+function saveTemplates(list) {
+  try { localStorage.setItem('myagentPromptTemplates', JSON.stringify(list)); } catch { /* ignore */ }
+}
+
+let tpl = { open: false, items: [], idx: 0, start: -1 };
+
+function renderTplPanel() {
+  let p = $('tplPanel');
+  if (!tpl.open || !tpl.items.length) { if (p) p.remove(); return; }
+  if (!p) {
+    p = document.createElement('div');
+    p.id = 'tplPanel';
+    $('composerWrap').appendChild(p);
+  }
+  p.innerHTML = tpl.items.map((t2, i) =>
+    `<button type="button" class="sitem ${i === tpl.idx ? 'active' : ''}" data-i="${i}"><b>${esc(t2.name)}</b><span>${esc(truncate(String(t2.text).replace(/\n/g, ' '), 42))}</span></button>`).join('');
+  for (const b of p.querySelectorAll('.sitem')) {
+    b.onclick = () => runTpl(tpl.items[+b.dataset.i]);
+  }
+  const act = p.querySelector('.sitem.active');
+  if (act) act.scrollIntoView({ block: 'nearest' });
+}
+
+function runTpl(item) {
+  const input = $('input');
+  const v = input.value;
+  const caret = input.selectionStart ?? v.length;
+  const before = v.slice(0, tpl.start);
+  const after = v.slice(caret);
+  input.value = before + item.text + after;
+  tpl.open = false;
+  renderTplPanel();
+  input.focus();
+  const pos = (before + item.text).length;
+  input.setSelectionRange(pos, pos);
+  fitInput();
+}
+
+function tplOnInput() {
+  const input = $('input');
+  const v = input.value;
+  const caret = input.selectionStart ?? v.length;
+  const m = /#([^\s#@/]*)$/.exec(v.slice(0, caret));
+  if (!m) { if (tpl.open) { tpl.open = false; renderTplPanel(); } return; }
+  const kw = m[1].toLowerCase();
+  tpl.open = true;
+  tpl.start = caret - m[0].length;
+  tpl.items = loadTemplates().filter((x) => x.name.toLowerCase().includes(kw)).slice(0, 10);
+  tpl.idx = 0;
+  renderTplPanel();
+}
+
 /* ---------------- @ 提及（文件 / 专家） ---------------- */
 
 let mention = { open: false, items: [], idx: 0, start: -1 };
@@ -2509,6 +2576,59 @@ function renderSettingsPage() {
   stream.appendChild(auditCard);
   auditCard.querySelector('#auditOpen').onclick = () => switchView('audit');
 
+  // 提示词模板管理
+  const tplCard = pageCard('提示词模板', '输入框里敲 # 快速插入；这里管理模板',
+    '<button class="pbtn accent" id="tplNew">＋ 新建模板</button>');
+  const tplBody = tplCard.querySelector('.pc-body');
+  stream.appendChild(tplCard);
+  const drawTplList = () => {
+    const list = loadTemplates();
+    tplBody.innerHTML = list.length ? '' : '<div class="pc-empty">还没有模板 —— 点右上「＋ 新建模板」</div>';
+    for (const t2 of list) {
+      const row = document.createElement('div');
+      row.className = 'prow';
+      row.innerHTML =
+        `<span class="prow-t">#${esc(t2.name)}</span>` +
+        `<span class="prow-time">${esc(truncate(String(t2.text).replace(/\n/g, ' '), 46))}</span>` +
+        `<span class="prow-ops"><button class="pbtn" data-edit>编辑</button><button class="pbtn danger" data-del>删除</button></span>`;
+      tplBody.appendChild(row);
+      row.querySelector('[data-edit]').onclick = () => showTplForm(t2);
+      row.querySelector('[data-del]').onclick = async () => {
+        if (!(await uiConfirm(`删除模板「${t2.name}」？`, { danger: true, okText: '删除' }))) return;
+        saveTemplates(loadTemplates().filter((x) => x.id !== t2.id));
+        drawTplList();
+      };
+    }
+  };
+  const showTplForm = (editing) => {
+    const old = tplCard.querySelector('.tpl-form');
+    if (old) { old.remove(); if (!editing) return; }
+    const f = document.createElement('div');
+    f.className = 'tpl-form';
+    f.innerHTML =
+      `<div class="form-row"><label>名称</label><input id="tfName" placeholder="如：周报生成" value="${esc(editing ? editing.name : '')}" /></div>` +
+      `<div class="form-row"><label>模板内容</label><textarea id="tfText" rows="5" placeholder="插入输入框的完整 prompt…">${esc(editing ? editing.text : '')}</textarea></div>` +
+      `<div class="ne-foot"><button class="pbtn" id="tfCancel">取消</button><button class="pbtn accent" id="tfSave">保存</button></div>`;
+    tplBody.insertBefore(f, tplBody.firstChild);
+    f.querySelector('#tfCancel').onclick = () => f.remove();
+    f.querySelector('#tfSave').onclick = () => {
+      const name = f.querySelector('#tfName').value.trim();
+      const text = f.querySelector('#tfText').value;
+      if (!name || !text.trim()) { alert('名称与内容都不能为空'); return; }
+      const list = loadTemplates();
+      if (editing) {
+        const i = list.findIndex((x) => x.id === editing.id);
+        if (i >= 0) list[i] = { id: editing.id, name, text }; else list.push({ id: 'tpl-' + Date.now(), name, text });
+      } else {
+        list.push({ id: 'tpl-' + Date.now(), name, text });
+      }
+      saveTemplates(list);
+      drawTplList();
+    };
+  };
+  drawTplList();
+  tplCard.querySelector('#tplNew').onclick = () => showTplForm(null);
+
   // 主题色
   const themeCard = pageCard('主题色', '界面强调色，立即生效并记住选择');
   const tBody = themeCard.querySelector('.pc-body');
@@ -2758,6 +2878,12 @@ function boot() {
   for (const t of document.querySelectorAll('.tab')) t.onclick = () => switchTab(t.dataset.tab);
   const input = $('input');
   input.addEventListener('keydown', (e) => {
+    if (tpl.open && tpl.items.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); tpl.idx = (tpl.idx + 1) % tpl.items.length; renderTplPanel(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); tpl.idx = (tpl.idx - 1 + tpl.items.length) % tpl.items.length; renderTplPanel(); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); runTpl(tpl.items[tpl.idx]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); tpl.open = false; renderTplPanel(); return; }
+    }
     if (mention.open && mention.items.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); mention.idx = (mention.idx + 1) % mention.items.length; renderMentionPanel(); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); mention.idx = (mention.idx - 1 + mention.items.length) % mention.items.length; renderMentionPanel(); return; }
@@ -2808,6 +2934,7 @@ function boot() {
     }
     if (v === '') inputHistIdx = -1;
     if (v.indexOf('@') >= 0) mentionOnInput(); else if (mention.open) { mention.open = false; renderMentionPanel(); }
+    if (v.indexOf('#') >= 0) tplOnInput(); else if (tpl.open) { tpl.open = false; renderTplPanel(); }
     slashOnInput();
     fitInput();
   });
@@ -2835,6 +2962,7 @@ const SLASH_COMMANDS = [
   { cmd: '/pin', desc: '置顶 / 取消置顶当前会话', run: () => { if (state.sessionId) togglePin(state.sessionId); else appendNote('当前无会话', true); } },
   { cmd: '/audit', desc: '打开审计日志（审批决策时间线）', run: () => switchView('audit') },
   { cmd: '/params', desc: '调节模型参数（temperature / max tokens）', run: () => toggleParamsPanel() },
+  { cmd: '/tpl', desc: '提示词模板：输入 # 或在此快速插入', run: () => { const input = $('input'); input.value = '#'; input.focus(); tplOnInput(); } },
   { cmd: '/help', desc: '列出全部命令', run: () => appendNote('可用命令：\n' + SLASH_COMMANDS.map((c) => `${c.cmd}  ${c.desc}`).join('\n')) },
 ];
 
