@@ -845,11 +845,14 @@ button.session-item {
 .msg.user .copy-btn:hover { opacity: 1; }
 .msg.assistant { position: relative; }
 .msg.assistant .a-copy {
-  position: absolute; right: 2px; top: 2px;
+  position: absolute; top: 2px;
   background: var(--panel2); border: 1px solid var(--line); color: var(--muted);
   border-radius: 6px; cursor: pointer; font-size: 11px; padding: 2px 6px;
   opacity: 0; transition: opacity 0.15s; font-family: inherit;
 }
+.msg.assistant .a-copy:nth-of-type(1) { right: 2px; }
+.msg.assistant .a-copy:nth-of-type(2) { right: 34px; }
+.msg.assistant .a-copy:nth-of-type(3) { right: 66px; }
 .msg.assistant:hover .a-copy { opacity: 1; }
 .msg.assistant .a-copy:hover { color: var(--text); border-color: var(--muted); }
 

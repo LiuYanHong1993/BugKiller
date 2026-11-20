@@ -1936,6 +1936,12 @@ function renderEvent(ev) {
     case 'user':
       if (state.pendingUserText !== null && ev.text === state.pendingUserText) {
         state.pendingUserText = null; // 乐观块已渲染（时间戳即发送时刻），跳过
+        // 补记 seq / 原文：重新生成需要从这条 user 消息回退
+        const t = state.currentTurn || [...document.querySelectorAll('.turn')].pop();
+        if (t && ev.seq) {
+          t.dataset.userSeq = String(ev.seq);
+          t.dataset.userText = String(ev.text ?? '');
+        }
         break;
       }
       appendUser(ev.text, ev.ts, ev.seq);
@@ -2003,6 +2009,7 @@ function appendUser(text, ts, seq) {
   turn.dataset.steps = '0';
   turn.dataset.fails = '0';
   turn.dataset.start = ts ? String(Date.parse(ts)) : String(Date.now());
+  if (seq) { turn.dataset.userSeq = String(seq); turn.dataset.userText = String(text ?? ''); }
   $('stream').appendChild(turn);
   state.currentTurn = turn;
 
@@ -2011,7 +2018,9 @@ function appendUser(text, ts, seq) {
   block.innerHTML = `<div class="ut">${esc(text ?? '')}</div>` +
     `<div class="u-meta"><span class="u-time">${fmtClock(ts)}</span>` +
     `<button class="copy-btn" type="button" data-edit title="编辑并重发">✎</button>` +
+    `<button class="copy-btn" type="button" data-quote title="引用这条消息">❝</button>` +
     `<button class="copy-btn" type="button" data-copy title="复制">⧉</button></div>`;
+  block.querySelector('[data-quote]').onclick = () => quoteIntoInput(text || '');
   block.querySelector('[data-copy]').onclick = () => {
     const btn = block.querySelector('[data-copy]');
     const done = () => { btn.textContent = '✓'; setTimeout(() => { btn.textContent = '⧉'; }, 1200); };
@@ -2077,6 +2086,19 @@ function finalizeTurn(replyTs) {
   state.currentTurn = null;
 }
 
+/** 引用一段内容到输入框（截断 100 字，多行加 > 前缀） */
+function quoteIntoInput(text) {
+  const t = String(text || '').trim();
+  if (!t) return;
+  const quoted = truncate(t, 100).split('\n').map((l) => '> ' + l).join('\n');
+  const input = $('input');
+  const existing = input.value.trim();
+  input.value = quoted + '\n\n' + (existing ? existing + '\n\n' : '');
+  input.focus();
+  input.setSelectionRange(0, 0);
+  fitInput();
+}
+
 function appendMsg(kind, text, ts) {
   const turn = currentTurnEl();
   const div = document.createElement('div');
@@ -2097,6 +2119,38 @@ function appendMsg(kind, text, ts) {
       } else { done(); }
     };
     div.appendChild(cp);
+    // 重新生成（回到该轮 user 消息之前，重发同一条）
+    const regen = document.createElement('button');
+    regen.type = 'button';
+    regen.className = 'a-copy';
+    regen.title = '重新生成此回复';
+    regen.textContent = '↻';
+    regen.onclick = async () => {
+      const t = div.closest('.turn');
+      const userSeq = Number((t && t.dataset.userSeq) || 0);
+      const userText = (t && t.dataset.userText) || '';
+      if (!userSeq || !userText) { appendNote('无法定位原消息', true); return; }
+      if (!(await uiConfirm('重新生成这条回复？该回复之后的内容将被丢弃。', { title: '重新生成', okText: '重新生成' }))) return;
+      try {
+        await api(`/api/sessions/${state.sessionId}/truncate`, { method: 'POST', body: JSON.stringify({ beforeSeq: userSeq }) });
+        cancelEditing();
+        await openSession(state.sessionId, state.sessionTitle, { skipWelcome: true });
+        $('input').value = userText;
+        fitInput();
+        send();
+      } catch (e) {
+        appendNote('重新生成失败：' + e.message, true);
+      }
+    };
+    div.appendChild(regen);
+    // 引用回复
+    const q = document.createElement('button');
+    q.type = 'button';
+    q.className = 'a-copy';
+    q.title = '引用此回复继续提问';
+    q.textContent = '❝';
+    q.onclick = () => quoteIntoInput(text || '');
+    div.appendChild(q);
     if (ts) finalizeTurn(ts);
   }
   scrollBottom();
