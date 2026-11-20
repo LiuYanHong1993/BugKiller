@@ -83,6 +83,29 @@ button:focus, button:focus-visible { outline: none; }
 #tplPanel .sitem span { color: var(--muted); font-size: 11px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tpl-form { margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--panel2); }
 
+/* 会话内搜索条（Ctrl+F） */
+#main { position: relative; }
+#findBar {
+  position: absolute; top: 8px; right: 18px; z-index: 80;
+  display: none; align-items: center; gap: 6px;
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 6px 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+#findBar input {
+  width: 190px; background: var(--panel); border: 1px solid var(--line);
+  color: var(--text); border-radius: 7px; padding: 4px 9px; font-size: 12px; outline: none;
+}
+#findBar input:focus { border-color: var(--accent); }
+#findBar span { color: var(--muted); font-size: 11.5px; min-width: 42px; text-align: center; }
+#findBar button {
+  background: transparent; border: 0; color: var(--text-dim); cursor: pointer;
+  padding: 3px 7px; border-radius: 5px; font-size: 12px; font-family: inherit;
+}
+#findBar button:hover { background: var(--panel3); color: var(--text); }
+mark.find-hit { background: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--text); border-radius: 3px; padding: 0 1px; }
+mark.find-hit.active { background: var(--accent); color: #fff; }
+
 /* 模型参数浮层（⚙ / /params） */
 #paramsPanel {
   position: absolute; bottom: calc(100% + 8px); right: 12px;

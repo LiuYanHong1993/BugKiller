@@ -1238,6 +1238,114 @@ async function mentionOnInput() {
   renderMentionPanel();
 }
 
+/* ---------------- 会话内搜索（Ctrl+F 高亮跳转） ---------------- */
+
+const findState = { open: false, hits: [], idx: 0, kw: '' };
+
+function openFindBar() {
+  if (state.view !== 'chat') return;
+  let bar = $('findBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'findBar';
+    bar.innerHTML =
+      `<input id="findInput" placeholder="在会话中查找…" />` +
+      `<span id="findCount">0/0</span>` +
+      `<button type="button" id="findPrev" title="上一个（Shift+Enter）">↑</button>` +
+      `<button type="button" id="findNext" title="下一个（Enter）">↓</button>` +
+      `<button type="button" id="findClose" title="关闭（Esc）">✕</button>`;
+    $('main').appendChild(bar);
+    const inp = bar.querySelector('#findInput');
+    inp.addEventListener('input', () => runFind(inp.value));
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1); }
+      if (e.key === 'Escape') { e.preventDefault(); closeFindBar(); }
+    });
+    bar.querySelector('#findPrev').onclick = () => stepFind(-1);
+    bar.querySelector('#findNext').onclick = () => stepFind(1);
+    bar.querySelector('#findClose').onclick = closeFindBar;
+  }
+  findState.open = true;
+  bar.style.display = 'flex';
+  const inp = bar.querySelector('#findInput');
+  inp.focus();
+  inp.select();
+}
+
+function clearFind() {
+  for (const m of document.querySelectorAll('#stream mark.find-hit')) {
+    const parent = m.parentNode;
+    if (!parent) continue;
+    parent.replaceChild(document.createTextNode(m.textContent), m);
+    parent.normalize();
+  }
+  findState.hits = [];
+  findState.idx = 0;
+  const c = $('findCount');
+  if (c) c.textContent = '0/0';
+}
+
+function runFind(kw) {
+  clearFind();
+  findState.kw = kw;
+  if (!kw) return;
+  const lower = kw.toLowerCase();
+  const walker = document.createTreeWalker($('stream'), NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.nodeValue && n.nodeValue.toLowerCase().includes(lower)) targets.push(n);
+  }
+  for (const tn of targets) {
+    const text = tn.nodeValue;
+    const lowText = text.toLowerCase();
+    const frag = document.createDocumentFragment();
+    let pos = 0;
+    let i;
+    while ((i = lowText.indexOf(lower, pos)) !== -1) {
+      if (i > pos) frag.appendChild(document.createTextNode(text.slice(pos, i)));
+      const m = document.createElement('mark');
+      m.className = 'find-hit';
+      m.textContent = text.slice(i, i + kw.length);
+      frag.appendChild(m);
+      findState.hits.push(m);
+      pos = i + kw.length;
+    }
+    if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+    if (tn.parentNode) tn.parentNode.replaceChild(frag, tn);
+  }
+  if (findState.hits.length) { findState.idx = 0; focusHit(); }
+  updateFindCount();
+}
+
+function stepFind(dir) {
+  if (!findState.hits.length) return;
+  findState.idx = (findState.idx + dir + findState.hits.length) % findState.hits.length;
+  focusHit();
+  updateFindCount();
+}
+
+function focusHit() {
+  for (const m of findState.hits) m.classList.remove('active');
+  const m = findState.hits[findState.idx];
+  if (!m) return;
+  m.classList.add('active');
+  m.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function updateFindCount() {
+  const c = $('findCount');
+  if (c) c.textContent = findState.hits.length ? `${findState.idx + 1}/${findState.hits.length}` : '0/0';
+}
+
+function closeFindBar() {
+  clearFind();
+  findState.open = false;
+  const bar = $('findBar');
+  if (bar) bar.style.display = 'none';
+  $('input').focus();
+}
+
 /* ---------------- 模型参数浮层（⚙ / /params） ---------------- */
 
 async function toggleParamsPanel() {
@@ -2961,6 +3069,16 @@ function boot() {
     if ((e.ctrlKey || e.metaKey) && e.key === ',') {
       e.preventDefault();
       switchView('settings');
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+      e.preventDefault();
+      openFindBar();
+      return;
+    }
+    if (e.key === 'Escape' && findState.open) {
+      e.preventDefault();
+      closeFindBar();
     }
   });
   for (const t of document.querySelectorAll('.tab')) t.onclick = () => switchTab(t.dataset.tab);
