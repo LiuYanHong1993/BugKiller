@@ -56,7 +56,47 @@ export function startServer(deps: ServerDeps): Promise<string> {
   const aborts = new Map<string, AbortController>(); // sessionId -> 进行中回合的中止器
   const allowlist = new Map<string, Set<string>>(); // sessionId -> 已记忆放行的工具（审批记忆）
   const sandboxPolicy = loadSandboxPolicy(resolve(deps.workspaceRoot, 'policy'));
-  const sandboxes = new Map<string, SandboxSession>();
+    const sandboxes = new Map<string, SandboxSession>();
+
+  /** 会话工作区缓存（workspace 相对路径 → 校验后的绝对根）—— 必须在任何 await 之前初始化 */
+  const wsCache = new Map<string, string>();
+  const normWs = (s: string) => String(s ?? '').trim().split('\\').join('/').replace(/^\/+/, '').replace(/\/+$/, '');
+
+  /** 会话的工作区根：默认平台根；可在会话中指定相对子目录（守卫：不得越界/进敏感目录） */
+  async function getWorkspaceRoot(sessionId: string): Promise<string> {
+    if (!sessionId) return deps.workspaceRoot;
+    if (wsCache.has(sessionId)) return wsCache.get(sessionId)!;
+    let ws = '';
+    try { ws = await deps.store.getWorkspace(sessionId); } catch { ws = ''; }
+    const root = resolveWorkspace(deps.workspaceRoot, ws);
+    wsCache.set(sessionId, root);
+    return root;
+  }
+
+  /** 校验并解析会话工作区相对路径（空 = 平台根） */
+  function resolveWorkspace(baseRoot: string, ws: string): string {
+    const norm = String(ws ?? '').trim().split('\\').join('/').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (!norm) return baseRoot;
+    for (const banned of ['data', 'keys', 'dist', 'node_modules', '.git', 'webview2-profile', 'attachments']) {
+      if (norm === banned || norm.startsWith(banned + '/')) {
+        throw new Error(`工作区不可指向受保护目录：${norm}`);
+      }
+    }
+    const abs = resolve(baseRoot, norm);
+    const rel = relative(baseRoot, abs);
+    if (rel.startsWith('..') || rel.includes('..')) throw new Error(`工作区越界：${norm}`);
+    return abs;
+  }
+
+  /** 更新会话工作区（含缓存/沙箱/历史失效） */
+  async function setSessionWorkspace(sessionId: string, ws: string): Promise<string> {
+    const root = resolveWorkspace(deps.workspaceRoot, ws); // 先校验
+    await deps.store.setWorkspace(sessionId, normWs(ws));
+    wsCache.set(sessionId, root);
+    sandboxes.delete(sessionId); // 工作区变更 → 沙箱镜像/守卫重建
+    histories.delete(sessionId); // 系统提示里的工作区路径需要刷新
+    return root;
+  }
   // 运行时可变设置（设置页在线修改；持久层见 data/kernel-settings.json）
   const runtime = {
     autoApprove: deps.policy.autoApprove === true,
@@ -305,7 +345,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
               provider: deps.provider,
               registry: deps.registry,
               store: deps.store,
-              ctx: buildTurnCtx(sessionId, body?.autoApprove === true, sse),
+              ctx: await buildTurnCtx(sessionId, body?.autoApprove === true, sse),
               sessionId,
               signal: ac.signal,
               maxHistoryMessages: 40,
@@ -536,7 +576,9 @@ export function startServer(deps: ServerDeps): Promise<string> {
       // ---- 工作区文件读写（内置文件浏览器用；守卫名单 + 大小上限） ----
       if (pathname === '/api/read' && req.method === 'GET') {
         const p = url.searchParams.get('path') ?? '';
-        const { abs, rel } = assertGuardedPath(sandboxPolicy, deps.workspaceRoot, p);
+        const sid = url.searchParams.get('session') ?? '';
+        const wsRoot = await getWorkspaceRoot(sid);
+        const { abs, rel } = assertGuardedPath(sandboxPolicy, wsRoot, p);
         const st = await stat(abs).catch(() => null);
         if (!st || !st.isFile()) return json(res, 404, { error: '文件不存在' });
         if (st.size > 256 * 1024) return json(res, 413, { error: '文件过大（>256KB），请用 read_file 工具查看' });
@@ -548,7 +590,8 @@ export function startServer(deps: ServerDeps): Promise<string> {
         const body = await readJson(req);
         const p = String(body?.path ?? '');
         const content = String(body?.content ?? '');
-        const { abs, rel } = assertGuardedPath(sandboxPolicy, deps.workspaceRoot, p);
+        const wsRoot = await getWorkspaceRoot(String(body?.session ?? ''));
+        const { abs, rel } = assertGuardedPath(sandboxPolicy, wsRoot, p);
         const bytes = assertSizeOk(sandboxPolicy, content);
         await mkdir(join(abs, '..'), { recursive: true });
         await writeFile(abs, content, 'utf8');
@@ -556,8 +599,9 @@ export function startServer(deps: ServerDeps): Promise<string> {
         return json(res, 200, { ok: true, path: rel, bytes });
       }
 
-      // ---- 工作区文件清单（@ 提及用：深度≤2，跳过数据/依赖目录） ----
+      // ---- 工作区文件清单（@ 提及 / 文件浏览器；session 参数 = 该会话工作区） ----
       if (pathname === '/api/files' && req.method === 'GET') {
+        const wsRoot = await getWorkspaceRoot(url.searchParams.get('session') ?? '');
         const out: Array<{ path: string; size: number }> = [];
         const skip = new Set(['data', 'dist', 'node_modules', 'keys', '.git', 'webview2-profile', 'attachments', 'notes']);
         const walk = async (dir: string, depth: number): Promise<void> => {
@@ -588,12 +632,29 @@ export function startServer(deps: ServerDeps): Promise<string> {
               if (skip.has(n)) continue;
               await walk(full, depth + 1);
             } else {
-              out.push({ path: relative(deps.workspaceRoot, full).split(sep).join('/'), size: st.size });
+              out.push({ path: relative(wsRoot, full).split(sep).join('/'), size: st.size });
             }
           }
         };
-        await walk(deps.workspaceRoot, 0);
+        await walk(wsRoot, 0);
         return json(res, 200, { files: out });
+      }
+
+      // ---- 会话工作区：查看 / 指定（相对平台根；空 = 平台公共工作区） ----
+      m = pathname.match(/^\/api\/sessions\/([A-Za-z0-9-]+)\/workspace$/);
+      if (m && (req.method === 'GET' || req.method === 'POST')) {
+        const sid = m[1]!;
+        if (req.method === 'POST') {
+          const body = await readJson(req);
+          try {
+            const root = await setSessionWorkspace(sid, String(body?.path ?? ''));
+            return json(res, 200, { ok: true, workspace: relative(deps.workspaceRoot, root).split(sep).join('/') });
+          } catch (err) {
+            return json(res, 400, { error: (err as Error).message });
+          }
+        }
+        const root = await getWorkspaceRoot(sid);
+        return json(res, 200, { workspace: relative(deps.workspaceRoot, root).split(sep).join('/') });
       }
 
       // ---- 写操作单文件回滚（preimage 恢复） ----
@@ -602,7 +663,8 @@ export function startServer(deps: ServerDeps): Promise<string> {
         const body = await readJson(req);
         const rel = String(body?.path ?? '').trim();
         if (!rel) return json(res, 400, { error: '缺少 path' });
-        const out = await rollbackFile(deps.workspaceRoot, resolve(deps.workspaceRoot, 'data', 'sandbox'), m[1]!, rel);
+        const wsRoot = await getWorkspaceRoot(m[1]!);
+        const out = await rollbackFile(wsRoot, resolve(deps.workspaceRoot, 'data', 'sandbox'), m[1]!, rel);
         deps.log(`[rollback] ${m[1]} ${rel} → ${out.action}`);
         return json(res, 200, out);
       }
@@ -664,11 +726,12 @@ export function startServer(deps: ServerDeps): Promise<string> {
   }
 
   /** 回合工具上下文：沙箱 + 审批门（审批事件可同时 emit 给 SSE） */
-  function buildTurnCtx(sessionId: string, autoApproveOnce: boolean, emit?: (event: string, data: Record<string, unknown>) => void): ToolContext {
+  async function buildTurnCtx(sessionId: string, autoApproveOnce: boolean, emit?: (event: string, data: Record<string, unknown>) => void): Promise<ToolContext> {
+    const wsRoot = await getWorkspaceRoot(sessionId);
     let sandbox = sandboxes.get(sessionId);
     if (!sandbox) {
       sandbox = new SandboxSession({
-        workspaceRoot: deps.workspaceRoot,
+        workspaceRoot: wsRoot,
         journalDir: resolve(deps.workspaceRoot, 'data', 'sandbox'),
         policy: sandboxPolicy,
         log: deps.log,
@@ -677,7 +740,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
       sandboxes.set(sessionId, sandbox);
     }
     return {
-      workspaceRoot: deps.workspaceRoot,
+      workspaceRoot: wsRoot,
       log: deps.log,
       sessionId,
       sandbox,

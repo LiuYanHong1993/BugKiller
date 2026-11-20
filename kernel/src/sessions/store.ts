@@ -30,6 +30,8 @@ export interface SessionSummary {
   mtimeMs: number;
   events: number;
   archived: boolean;
+  /** 会话工作区（相对平台根；空 = 平台公共工作区） */
+  workspace: string;
 }
 
 const SCHEMA = 'myagent.session/v1';
@@ -79,16 +81,18 @@ export class SessionStore {
       const lines = text.split('\n').filter((l) => l.trim().length > 0);
       let title = '';
       let archived = false;
+      let workspace = '';
       if (lines.length > 0) {
         try {
-          const first = JSON.parse(lines[0] as string) as { title?: unknown; archived?: unknown };
+          const first = JSON.parse(lines[0] as string) as { title?: unknown; archived?: unknown; workspace?: unknown };
           title = String(first.title ?? '');
           archived = first.archived === true;
+          workspace = String(first.workspace ?? '');
         } catch {
           title = '(损坏的首行)';
         }
       }
-      out.push({ id: f.replace(/\.jsonl$/, ''), file: full, title, mtimeMs: st.mtimeMs, events: lines.length, archived });
+      out.push({ id: f.replace(/\.jsonl$/, ''), file: full, title, mtimeMs: st.mtimeMs, events: lines.length, archived, workspace });
     }
     return out.reverse();
   }
@@ -120,6 +124,21 @@ export class SessionStore {
     const events = await this.read(sessionId);
     if (events.length === 0) throw new Error(`会话不存在：${sessionId}`);
     events[0] = { ...events[0]!, title: title.slice(0, 60) };
+    await writeFile(this.fileOf(sessionId), events.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+  }
+
+  /** 会话工作区（相对平台根；空 = 平台公共工作区） */
+  async getWorkspace(sessionId: string): Promise<string> {
+    const events = await this.read(sessionId).catch(() => [] as SessionEvent[]);
+    const first = events[0] as Record<string, unknown> | undefined;
+    return first ? String(first.workspace ?? '') : '';
+  }
+
+  /** 设置会话工作区（改写首行 workspace 字段） */
+  async setWorkspace(sessionId: string, ws: string): Promise<void> {
+    const events = await this.read(sessionId);
+    if (events.length === 0) throw new Error(`会话不存在：${sessionId}`);
+    events[0] = { ...events[0]!, workspace: String(ws).trim() };
     await writeFile(this.fileOf(sessionId), events.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
   }
 

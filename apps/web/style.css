@@ -140,7 +140,7 @@ mark.find-hit.active { background: var(--accent); color: #fff; }
   font: 12.5px/1.5 inherit; font-family: inherit; border-radius: 6px;
 }
 .tree-row:hover { background: var(--panel2); color: var(--text); }
-.tree-row .tchev { color: var(--muted); font-size: 10px; width: 10px; flex: none; }
+.tree-row .tchev { color: var(--muted); width: 14px; flex: none; display: inline-flex; align-items: center; }
 .tree-row .tsize { margin-left: auto; color: var(--muted); font-size: 10.5px; }
 .files-editor {
   background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius);

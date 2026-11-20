@@ -1124,15 +1124,42 @@ function buildFileTree(files) {
 
 async function renderFilesPage() {
   const stream = $('stream');
+  const sid = state.sessionId;
+  if (!sid) {
+    stream.innerHTML = '<div class="msg note">先在对话里选择一个会话，再管理它的工作区文件（每个会话可指定独立工作区）。</div>';
+    return;
+  }
+  let ws = '';
+  try { ws = (await api(`/api/sessions/${sid}/workspace`)).workspace || ''; } catch { ws = ''; }
   stream.innerHTML = '<div class="msg note">加载工作区文件…</div>';
   let files = [];
   try {
-    files = (await api('/api/files')).files || [];
+    files = (await api(`/api/files?session=${encodeURIComponent(sid)}`)).files || [];
   } catch (e) {
     stream.innerHTML = `<div class="msg note err">读取失败：${esc(e.message)}</div>`;
     return;
   }
   stream.innerHTML = '';
+
+  const head = document.createElement('div');
+  head.className = 'office-head';
+  head.innerHTML =
+    `<h1 class="office-title">工作区文件</h1>` +
+    `<div class="office-sub">当前工作区：<b style="font-family:var(--mono)">${ws ? esc(ws) + '/' : '（平台公共工作区）'}</b>` +
+    ` <button class="pbtn" id="wsSet">指定工作区</button>` +
+    `<span class="dim" style="margin-left:10px">相对平台根的目录；agent 读写、@ 提及、此页面都将使用它</span></div>`;
+  stream.appendChild(head);
+  head.querySelector('#wsSet').onclick = async () => {
+    const p = prompt('指定本会话的工作区（相对平台根的目录，留空恢复公共工作区）：', ws);
+    if (p === null) return;
+    try {
+      const r = await api(`/api/sessions/${sid}/workspace`, { method: 'POST', body: JSON.stringify({ path: p }) });
+      appendNote(`📁 工作区已切换为「${r.workspace || '平台公共工作区'}」`);
+      renderFilesPage();
+    } catch (e) {
+      alert('设置失败：' + e.message);
+    }
+  };
 
   const wrap = document.createElement('div');
   wrap.className = 'files-wrap';
@@ -1153,7 +1180,7 @@ async function renderFilesPage() {
       row.className = 'tree-row dir';
       row.style.paddingLeft = `${8 + depth * 14}px`;
       const collapsed = state.treeCollapsed.has(pathKey);
-      row.innerHTML = `<span class="tchev">${collapsed ? '▸' : '▾'}</span>${icon('folder', 13)} <span style="margin-left:5px">${esc(dirName)}</span>`;
+      row.innerHTML = `<span class="tchev">${icon(collapsed ? 'chevronRight' : 'chevronDown', 14)}</span><span style="margin-left:5px">${icon('folder', 14)} ${esc(dirName)}</span>`;
       container.appendChild(row);
       const sub = document.createElement('div');
       sub.style.display = collapsed ? 'none' : 'block';
@@ -1195,7 +1222,7 @@ async function openFileEditor(wrap, path) {
   let content = '';
   if (path) {
     try {
-      const d = await api(`/api/read?path=${encodeURIComponent(path)}`);
+      const d = await api(`/api/read?path=${encodeURIComponent(path)}&session=${encodeURIComponent(state.sessionId || '')}`);
       content = d.content;
     } catch (e) {
       box.innerHTML = `<div class="msg note err">读取失败：${esc(e.message)}</div>`;
@@ -1212,7 +1239,7 @@ async function openFileEditor(wrap, path) {
     const p = box.querySelector('#fePath').value.trim();
     if (!p) { alert('请填写文件路径'); return; }
     try {
-      const r = await api('/api/write', { method: 'POST', body: JSON.stringify({ path: p, content: ta.value }) });
+      const r = await api('/api/write', { method: 'POST', body: JSON.stringify({ path: p, content: ta.value, session: state.sessionId || '' }) });
       appendNote(`💾 已保存 ${r.path}（${r.bytes} 字节）`);
       state.treeCollapsed.clear();
     } catch (e) {
