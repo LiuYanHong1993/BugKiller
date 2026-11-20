@@ -689,6 +689,8 @@ function switchView(view) {
   const isChat = view === 'chat';
   $('tabs').style.display = isChat ? 'flex' : 'none';
   $('composerWrap').style.display = isChat ? 'block' : 'none';
+  // 文件浏览器自己管滚动（避免外层双滚动条 + 底部截断）
+  $('streamScroll').classList.toggle('no-scroll', view === 'files');
   for (const b of document.querySelectorAll('.menu-item')) b.classList.toggle('active', b.id === (isChat ? 'newSession' : viewNavId(view)));
   $('sessTitle').textContent = isChat ? (state.sessionTitle || 'BugKiller') : VIEW_TITLES[view];
   if (!isChat) {
@@ -1142,28 +1144,28 @@ async function renderFilesPage() {
   const treeBody = wrap.querySelector('#fileTreeBody');
   const root = buildFileTree(files);
 
-  const drawNode = (node, container, depth) => {
+  const drawNode = (node, container, depth, prefix) => {
     const entries = [...node.dirs.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
     for (const [dirName, child] of entries) {
-      const key = `${depth}/${dirName}/${child.files.length}`; // 简化折叠键
+      const pathKey = prefix ? `${prefix}/${dirName}` : dirName; // 完整路径作折叠键，避免同名目录串状态
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'tree-row dir';
       row.style.paddingLeft = `${8 + depth * 14}px`;
-      const collapsed = state.treeCollapsed.has(child.name + '@' + depth);
+      const collapsed = state.treeCollapsed.has(pathKey);
       row.innerHTML = `<span class="tchev">${collapsed ? '▸' : '▾'}</span>📁 ${esc(dirName)}`;
-      treeBody.appendChild(row);
+      container.appendChild(row);
       const sub = document.createElement('div');
       sub.style.display = collapsed ? 'none' : 'block';
-      treeBody.appendChild(sub);
+      container.appendChild(sub);
       row.onclick = () => {
-        const k = child.name + '@' + depth;
-        if (state.treeCollapsed.has(k)) state.treeCollapsed.delete(k);
-        else state.treeCollapsed.add(k);
-        sub.style.display = state.treeCollapsed.has(k) ? 'none' : 'block';
-        row.querySelector('.tchev').textContent = state.treeCollapsed.has(k) ? '▸' : '▾';
+        if (state.treeCollapsed.has(pathKey)) state.treeCollapsed.delete(pathKey);
+        else state.treeCollapsed.add(pathKey);
+        const isNowCollapsed = state.treeCollapsed.has(pathKey);
+        sub.style.display = isNowCollapsed ? 'none' : 'block';
+        row.querySelector('.tchev').textContent = isNowCollapsed ? '▸' : '▾';
       };
-      drawNode(child, sub, depth + 1);
+      drawNode(child, sub, depth + 1, pathKey);
     }
     for (const f of node.files.sort((a, b) => (a.name < b.name ? -1 : 1))) {
       const row = document.createElement('button');
@@ -1172,10 +1174,10 @@ async function renderFilesPage() {
       row.style.paddingLeft = `${8 + depth * 14 + 14}px`;
       row.innerHTML = `📄 ${esc(f.name)}<span class="tsize">${fmtNum(f.size)}B</span>`;
       row.onclick = () => openFileEditor(wrap, f.path);
-      treeBody.appendChild(row);
+      container.appendChild(row);
     }
   };
-  drawNode(root, treeBody, 0);
+  drawNode(root, treeBody, 0, '');
 
   // 新建文件入口
   const newBtn = document.createElement('button');

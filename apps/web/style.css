@@ -106,8 +106,20 @@ button:focus, button:focus-visible { outline: none; }
 mark.find-hit { background: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--text); border-radius: 3px; padding: 0 1px; }
 mark.find-hit.active { background: var(--accent); color: #fff; }
 
+/* 全局深色滚动条（含右下角交汇块，避免亮色白块） */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #2a2c31; border-radius: 5px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #3a3d44; background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
 /* 工作区文件浏览器 */
-.files-wrap { display: grid; grid-template-columns: 300px 1fr; gap: 10px; height: calc(100vh - 210px); }
+#streamScroll.no-scroll { overflow: hidden; }
+#streamScroll.no-scroll #stream { height: 100%; display: flex; flex-direction: column; }
+.files-wrap { display: grid; grid-template-columns: 300px 1fr; gap: 10px; flex: 1; min-height: 0; }
 .files-tree {
   background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius);
   overflow-y: auto; padding: 8px 4px;
