@@ -690,7 +690,6 @@ function switchView(view) {
   $('tabs').style.display = isChat ? 'flex' : 'none';
   $('composerWrap').style.display = isChat ? 'block' : 'none';
   // 文件浏览器自己管滚动（避免外层双滚动条 + 底部截断）
-  $('streamScroll').classList.toggle('no-scroll', view === 'files');
   for (const b of document.querySelectorAll('.menu-item')) b.classList.toggle('active', b.id === (isChat ? 'newSession' : viewNavId(view)));
   $('sessTitle').textContent = isChat ? (state.sessionTitle || 'BugKiller') : VIEW_TITLES[view];
   if (!isChat) {
@@ -702,7 +701,6 @@ function switchView(view) {
     else if (view === 'settings') renderSettingsPage();
     else if (view === 'feedback') renderFeedbackPage();
     else if (view === 'audit') renderAuditPage();
-    else if (view === 'files') renderFilesPage();
   } else {
     reloadDialog();
   }
@@ -1122,65 +1120,67 @@ function buildFileTree(files) {
   return root;
 }
 
-async function renderFilesPage() {
-  const stream = $('stream');
+/** 会话工作区抽屉：右侧滑出（树 + 编辑器）；会话相关功能放对话里 */
+async function openWsDrawer() {
   const sid = state.sessionId;
-  if (!sid) {
-    stream.innerHTML = '<div class="msg note">先在对话里选择一个会话，再管理它的工作区文件（每个会话可指定独立工作区）。</div>';
-    return;
-  }
+  if (!sid) { appendNote('先选择一个会话 —— 每个会话有自己独立的工作区', true); return; }
+  closeWsDrawer();
   let ws = '';
   try { ws = (await api(`/api/sessions/${sid}/workspace`)).workspace || ''; } catch { ws = ''; }
-  stream.innerHTML = '<div class="msg note">加载工作区文件…</div>';
-  let files = [];
-  try {
-    files = (await api(`/api/files?session=${encodeURIComponent(sid)}`)).files || [];
-  } catch (e) {
-    stream.innerHTML = `<div class="msg note err">读取失败：${esc(e.message)}</div>`;
-    return;
-  }
-  stream.innerHTML = '';
 
-  const head = document.createElement('div');
-  head.className = 'office-head';
-  head.innerHTML =
-    `<h1 class="office-title">工作区文件</h1>` +
-    `<div class="office-sub">当前工作区：<b style="font-family:var(--mono)">${ws ? esc(ws) + '/' : '（平台公共工作区）'}</b>` +
-    ` <button class="pbtn" id="wsSet">指定工作区</button>` +
-    `<span class="dim" style="margin-left:10px">相对平台根的目录；agent 读写、@ 提及、此页面都将使用它</span></div>`;
-  stream.appendChild(head);
-  head.querySelector('#wsSet').onclick = async () => {
+  const mask = document.createElement('div');
+  mask.id = 'wsDrawerMask';
+  const drawer = document.createElement('div');
+  drawer.id = 'wsDrawer';
+  drawer.innerHTML =
+    `<div class="wsd-head">` +
+    `<span class="wsd-title">${icon('folderTree', 15)} 会话工作区</span>` +
+    `<span class="wsd-ws mono">${ws ? esc(ws) + '/' : '（公共）'}</span>` +
+    `<button type="button" class="pbtn" id="wsdSet" title="指定本会话的工作区目录">指定</button>` +
+    `<button type="button" class="pbtn" id="wsdClose">${icon('x', 13)}</button>` +
+    `</div>` +
+    `<div class="wsd-body"><div class="files-tree" id="wsdTree"><div class="files-tree-head">加载中…</div></div>` +
+    `<div class="files-editor" id="wsdEditor"><div class="pc-empty">从左侧选择文件查看 / 编辑。</div></div></div>`;
+  mask.appendChild(drawer);
+  document.body.appendChild(mask);
+  mask.onclick = (e) => { if (e.target === mask) closeWsDrawer(); };
+  drawer.querySelector('#wsdClose').onclick = closeWsDrawer;
+  drawer.querySelector('#wsdSet').onclick = async () => {
     const p = prompt('指定本会话的工作区（相对平台根的目录，留空恢复公共工作区）：', ws);
     if (p === null) return;
     try {
       const r = await api(`/api/sessions/${sid}/workspace`, { method: 'POST', body: JSON.stringify({ path: p }) });
       appendNote(`📁 工作区已切换为「${r.workspace || '平台公共工作区'}」`);
-      renderFilesPage();
+      openWsDrawer(); // 重开刷新
     } catch (e) {
       alert('设置失败：' + e.message);
     }
   };
 
-  const wrap = document.createElement('div');
-  wrap.className = 'files-wrap';
-  wrap.innerHTML =
-    `<div class="files-tree"><div class="files-tree-head">工作区 <span class="dim">${files.length} 个文件</span></div><div id="fileTreeBody"></div></div>` +
-    `<div class="files-editor" id="fileEditor"><div class="pc-empty">从左侧选择一个文件查看 / 编辑；也可新建文件。</div></div>`;
-  stream.appendChild(wrap);
+  const treeBox = drawer.querySelector('#wsdTree');
+  const editorBox = drawer.querySelector('#wsdEditor');
+  let files = [];
+  try {
+    files = (await api(`/api/files?session=${encodeURIComponent(sid)}`)).files || [];
+  } catch (e) {
+    treeBox.innerHTML = `<div class="pc-empty">读取失败：${esc(e.message)}</div>`;
+    return;
+  }
+  treeBox.innerHTML = `<div class="files-tree-head">${files.length} 个文件 · 保存即时写回工作区</div><div id="wsdTreeBody"></div>`;
 
-  const treeBody = wrap.querySelector('#fileTreeBody');
+  const treeBody = treeBox.querySelector('#wsdTreeBody');
   const root = buildFileTree(files);
 
   const drawNode = (node, container, depth, prefix) => {
     const entries = [...node.dirs.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
     for (const [dirName, child] of entries) {
-      const pathKey = prefix ? `${prefix}/${dirName}` : dirName; // 完整路径作折叠键，避免同名目录串状态
+      const pathKey = prefix ? `${prefix}/${dirName}` : dirName;
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'tree-row dir';
-      row.style.paddingLeft = `${8 + depth * 14}px`;
+      row.style.paddingLeft = `${8 + depth * 12}px`;
       const collapsed = state.treeCollapsed.has(pathKey);
-      row.innerHTML = `<span class="tchev">${icon(collapsed ? 'chevronRight' : 'chevronDown', 14)}</span><span style="margin-left:5px">${icon('folder', 14)} ${esc(dirName)}</span>`;
+      row.innerHTML = `<span class="tchev">${icon(collapsed ? 'chevronRight' : 'chevronDown', 14)}</span><span style="margin-left:4px">${icon('folder', 14)} ${esc(dirName)}</span>`;
       container.appendChild(row);
       const sub = document.createElement('div');
       sub.style.display = collapsed ? 'none' : 'block';
@@ -1188,9 +1188,9 @@ async function renderFilesPage() {
       row.onclick = () => {
         if (state.treeCollapsed.has(pathKey)) state.treeCollapsed.delete(pathKey);
         else state.treeCollapsed.add(pathKey);
-        const isNowCollapsed = state.treeCollapsed.has(pathKey);
-        sub.style.display = isNowCollapsed ? 'none' : 'block';
-        row.querySelector('.tchev').textContent = isNowCollapsed ? '▸' : '▾';
+        const nowCollapsed = state.treeCollapsed.has(pathKey);
+        sub.style.display = nowCollapsed ? 'none' : 'block';
+        row.querySelector('.tchev').innerHTML = icon(nowCollapsed ? 'chevronRight' : 'chevronDown', 14);
       };
       drawNode(child, sub, depth + 1, pathKey);
     }
@@ -1198,26 +1198,32 @@ async function renderFilesPage() {
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'tree-row file';
-      row.style.paddingLeft = `${8 + depth * 14 + 14}px`;
-      row.innerHTML = `${icon('fileText', 13)} <span style="margin-left:5px">${esc(f.name)}</span><span class="tsize">${fmtNum(f.size)}B</span>`;
-      row.onclick = () => openFileEditor(wrap, f.path);
+      row.style.paddingLeft = `${8 + depth * 12 + 14}px`;
+      row.innerHTML = `${icon('fileText', 13)} <span style="margin-left:4px">${esc(f.name)}</span><span class="tsize">${fmtNum(f.size)}B</span>`;
+      row.onclick = () => openFileEditor(editorBox, f.path);
       container.appendChild(row);
     }
   };
   drawNode(root, treeBody, 0, '');
 
-  // 新建文件入口
   const newBtn = document.createElement('button');
   newBtn.type = 'button';
   newBtn.className = 'pbtn accent';
   newBtn.textContent = '＋ 新建文件';
   newBtn.style.margin = '10px 8px';
-  newBtn.onclick = () => openFileEditor(wrap, '');
+  newBtn.onclick = () => openFileEditor(editorBox, '');
   treeBody.appendChild(newBtn);
 }
 
+function closeWsDrawer() {
+  const m = $('wsDrawerMask');
+  if (m) m.remove();
+}
+
+/* ---------------- 提示词模板库（# 触发 / /tpl 命令 / 设置页管理） ---------------- */
+
 async function openFileEditor(wrap, path) {
-  const box = wrap.querySelector('#fileEditor');
+  const box = wrap.querySelector('#wsdEditor') || wrap.querySelector('#fileEditor') || wrap;
   box.innerHTML = '<div class="pc-empty">加载中…</div>';
   let content = '';
   if (path) {
@@ -3156,6 +3162,11 @@ function boot() {
     el.innerHTML = icon(name, size);
   }
   // composer 按钮图标
+  const wsBtn = $('wsBtn');
+  if (wsBtn) {
+    wsBtn.innerHTML = icon('folderTree', 14);
+    wsBtn.onclick = () => openWsDrawer();
+  }
   const attachBtn = $('attachBtn');
   if (attachBtn) attachBtn.innerHTML = icon('plus', 14);
   const paramsBtn = $('paramsBtn');
@@ -3179,7 +3190,6 @@ function boot() {
   $('navProjects').onclick = () => switchView('projects');
   $('navOffice').onclick = () => switchView('office');
   $('navAgents').onclick = () => switchView('agents');
-  $('navFiles').onclick = () => switchView('files');
   $('modelSel').onclick = () => {
     const m = $('meta');
     m.style.display = m.style.display === 'none' ? 'block' : 'none';

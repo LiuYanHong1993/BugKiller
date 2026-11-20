@@ -121,7 +121,34 @@ mark.find-hit.active { background: var(--accent); color: #fff; }
 .menu-item .ic svg, .hicon .hic svg, .hchip .hic svg { display: block; }
 .tree-row svg, .otab svg, #slashPanel .sitem svg, #mentionPanel .sitem svg, #tplPanel .sitem svg { flex: none; vertical-align: -2px; }
 .a-copy svg, .copy-btn svg, .q svg, .ec-more svg { display: block; }
-#paramsBtn svg, #attachBtn svg, #send svg { display: block; }
+#paramsBtn svg, #attachBtn svg, #send svg, #wsBtn svg { display: block; }
+
+/* 会话工作区抽屉 */
+#topbar { display: flex; align-items: center; gap: 10px; }
+#topbar .spacer { flex: 1; }
+#wsDrawerMask {
+  position: fixed; inset: 0; z-index: 150;
+  background: rgba(0, 0, 0, 0.4);
+}
+#wsDrawer {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: min(640px, 55vw);
+  background: var(--bg); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45);
+  animation: wsd-in 0.18s ease;
+}
+@keyframes wsd-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.wsd-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px; border-bottom: 1px solid var(--line-soft);
+}
+.wsd-title { font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.wsd-ws { color: var(--accent); font-size: 11.5px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wsd-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px 1fr; gap: 8px; padding: 8px; }
+.wsd-body .files-tree, .wsd-body .files-editor { height: 100%; }
+#wsdTreeBody { overflow-y: auto; max-height: calc(100% - 30px); }
+#feBody { height: calc(100% - 46px); }
 
 /* 工作区文件浏览器 */
 #streamScroll.no-scroll { overflow: hidden; }
