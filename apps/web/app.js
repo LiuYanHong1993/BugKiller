@@ -52,6 +52,7 @@ const state = {
   collapsedGroups: new Set(),
   projFilter: '',        // 空 = 全部
   searchOpen: false,
+  treeCollapsed: new Set(),
   showArchived: false,   // 侧栏是否显示已归档会话
   view: 'chat',          // chat | projects | office | agents | settings | feedback
   officeTab: 'experts',  // 办公套件子 Tab
@@ -699,12 +700,13 @@ function switchView(view) {
     else if (view === 'settings') renderSettingsPage();
     else if (view === 'feedback') renderFeedbackPage();
     else if (view === 'audit') renderAuditPage();
+    else if (view === 'files') renderFilesPage();
   } else {
     reloadDialog();
   }
 }
 
-const VIEW_TITLES = { chat: 'BugKiller', projects: '项目 / 产品管理', office: '办公套件', agents: '云智能体', settings: '设置', feedback: '问题反馈', audit: '审计日志' };
+const VIEW_TITLES = { chat: 'BugKiller', projects: '项目 / 产品管理', office: '办公套件', agents: '云智能体', settings: '设置', feedback: '问题反馈', audit: '审计日志', files: '工作区文件' };
 
 function viewNavId(view) {
   return { projects: 'navProjects', office: 'navOffice', agents: 'navAgents' }[view] ?? '';
@@ -1100,6 +1102,121 @@ function renderOfficeKnowledge(listWrap) {
       };
     }
   }).catch(() => {});
+}
+
+/* ---------------- 工作区文件浏览器（树 + 内置编辑器） ---------------- */
+
+function buildFileTree(files) {
+  const root = { name: '', dirs: new Map(), files: [] };
+  for (const f of files) {
+    const parts = String(f.path).split('/');
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!node.dirs.has(parts[i])) node.dirs.set(parts[i], { name: parts[i], dirs: new Map(), files: [] });
+      node = node.dirs.get(parts[i]);
+    }
+    node.files.push({ name: parts[parts.length - 1], path: f.path, size: f.size });
+  }
+  return root;
+}
+
+async function renderFilesPage() {
+  const stream = $('stream');
+  stream.innerHTML = '<div class="msg note">加载工作区文件…</div>';
+  let files = [];
+  try {
+    files = (await api('/api/files')).files || [];
+  } catch (e) {
+    stream.innerHTML = `<div class="msg note err">读取失败：${esc(e.message)}</div>`;
+    return;
+  }
+  stream.innerHTML = '';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'files-wrap';
+  wrap.innerHTML =
+    `<div class="files-tree"><div class="files-tree-head">工作区 <span class="dim">${files.length} 个文件</span></div><div id="fileTreeBody"></div></div>` +
+    `<div class="files-editor" id="fileEditor"><div class="pc-empty">从左侧选择一个文件查看 / 编辑；也可新建文件。</div></div>`;
+  stream.appendChild(wrap);
+
+  const treeBody = wrap.querySelector('#fileTreeBody');
+  const root = buildFileTree(files);
+
+  const drawNode = (node, container, depth) => {
+    const entries = [...node.dirs.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    for (const [dirName, child] of entries) {
+      const key = `${depth}/${dirName}/${child.files.length}`; // 简化折叠键
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'tree-row dir';
+      row.style.paddingLeft = `${8 + depth * 14}px`;
+      const collapsed = state.treeCollapsed.has(child.name + '@' + depth);
+      row.innerHTML = `<span class="tchev">${collapsed ? '▸' : '▾'}</span>📁 ${esc(dirName)}`;
+      treeBody.appendChild(row);
+      const sub = document.createElement('div');
+      sub.style.display = collapsed ? 'none' : 'block';
+      treeBody.appendChild(sub);
+      row.onclick = () => {
+        const k = child.name + '@' + depth;
+        if (state.treeCollapsed.has(k)) state.treeCollapsed.delete(k);
+        else state.treeCollapsed.add(k);
+        sub.style.display = state.treeCollapsed.has(k) ? 'none' : 'block';
+        row.querySelector('.tchev').textContent = state.treeCollapsed.has(k) ? '▸' : '▾';
+      };
+      drawNode(child, sub, depth + 1);
+    }
+    for (const f of node.files.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'tree-row file';
+      row.style.paddingLeft = `${8 + depth * 14 + 14}px`;
+      row.innerHTML = `📄 ${esc(f.name)}<span class="tsize">${fmtNum(f.size)}B</span>`;
+      row.onclick = () => openFileEditor(wrap, f.path);
+      treeBody.appendChild(row);
+    }
+  };
+  drawNode(root, treeBody, 0);
+
+  // 新建文件入口
+  const newBtn = document.createElement('button');
+  newBtn.type = 'button';
+  newBtn.className = 'pbtn accent';
+  newBtn.textContent = '＋ 新建文件';
+  newBtn.style.margin = '10px 8px';
+  newBtn.onclick = () => openFileEditor(wrap, '');
+  treeBody.appendChild(newBtn);
+}
+
+async function openFileEditor(wrap, path) {
+  const box = wrap.querySelector('#fileEditor');
+  box.innerHTML = '<div class="pc-empty">加载中…</div>';
+  let content = '';
+  if (path) {
+    try {
+      const d = await api(`/api/read?path=${encodeURIComponent(path)}`);
+      content = d.content;
+    } catch (e) {
+      box.innerHTML = `<div class="msg note err">读取失败：${esc(e.message)}</div>`;
+      return;
+    }
+  }
+  box.innerHTML =
+    `<div class="fe-head"><input id="fePath" value="${esc(path)}" placeholder="相对路径，如 notes/idea.md" />` +
+    `<button class="pbtn accent" id="feSave">保存</button></div>` +
+    `<textarea id="feBody" spellcheck="false"></textarea>`;
+  const ta = box.querySelector('#feBody');
+  ta.value = content;
+  box.querySelector('#feSave').onclick = async () => {
+    const p = box.querySelector('#fePath').value.trim();
+    if (!p) { alert('请填写文件路径'); return; }
+    try {
+      const r = await api('/api/write', { method: 'POST', body: JSON.stringify({ path: p, content: ta.value }) });
+      appendNote(`💾 已保存 ${r.path}（${r.bytes} 字节）`);
+      state.treeCollapsed.clear();
+    } catch (e) {
+      alert('保存失败：' + e.message);
+    }
+  };
 }
 
 /* ---------------- 提示词模板库（# 触发 / /tpl 命令 / 设置页管理） ---------------- */
@@ -3020,6 +3137,7 @@ function boot() {
   $('navProjects').onclick = () => switchView('projects');
   $('navOffice').onclick = () => switchView('office');
   $('navAgents').onclick = () => switchView('agents');
+  $('navFiles').onclick = () => switchView('files');
   $('modelSel').onclick = () => {
     const m = $('meta');
     m.style.display = m.style.display === 'none' ? 'block' : 'none';

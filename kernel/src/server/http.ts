@@ -532,6 +532,29 @@ export function startServer(deps: ServerDeps): Promise<string> {
         });
       }
 
+      // ---- 工作区文件读写（内置文件浏览器用；守卫名单 + 大小上限） ----
+      if (pathname === '/api/read' && req.method === 'GET') {
+        const p = url.searchParams.get('path') ?? '';
+        const { abs, rel } = assertGuardedPath(sandboxPolicy, deps.workspaceRoot, p);
+        const st = await stat(abs).catch(() => null);
+        if (!st || !st.isFile()) return json(res, 404, { error: '文件不存在' });
+        if (st.size > 256 * 1024) return json(res, 413, { error: '文件过大（>256KB），请用 read_file 工具查看' });
+        const buf = await readFile(abs);
+        if (buf.includes(0)) return json(res, 415, { error: '二进制文件不支持预览' });
+        return json(res, 200, { path: rel, size: st.size, content: buf.toString('utf8') });
+      }
+      if (pathname === '/api/write' && req.method === 'POST') {
+        const body = await readJson(req);
+        const p = String(body?.path ?? '');
+        const content = String(body?.content ?? '');
+        const { abs, rel } = assertGuardedPath(sandboxPolicy, deps.workspaceRoot, p);
+        const bytes = assertSizeOk(sandboxPolicy, content);
+        await mkdir(join(abs, '..'), { recursive: true });
+        await writeFile(abs, content, 'utf8');
+        deps.log(`[files] 已保存 ${rel}（${bytes} 字节）`);
+        return json(res, 200, { ok: true, path: rel, bytes });
+      }
+
       // ---- 工作区文件清单（@ 提及用：深度≤2，跳过数据/依赖目录） ----
       if (pathname === '/api/files' && req.method === 'GET') {
         const out: Array<{ path: string; size: number }> = [];
