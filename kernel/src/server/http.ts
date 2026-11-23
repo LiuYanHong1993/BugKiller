@@ -764,7 +764,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
       approval: async (req) => {
         // 仅可查看模式：写类操作直接拒绝（含回合进行中切换权限的情形）
         if (runtime.mode === 'read-only') {
-          const evr = await deps.store.append(sessionId, 'note', { text: `👁 仅可查看模式：${req.action}（${req.tool}）已自动拒绝` });
+          const evr = await deps.store.append(sessionId, 'note', { text: '👁 当前为「仅可查看」模式，写入已被阻止 —— 请点击输入框上方的权限徽章，切换为「工作区权限」后重试' });
           emit?.('note', evr as unknown as Record<string, unknown>);
           const evd = await deps.store.append(sessionId, 'approval_decision', { approved: false, auto: true, reason: 'read-only' });
           emit?.('approval_decision', evd as unknown as Record<string, unknown>);

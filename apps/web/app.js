@@ -2705,16 +2705,32 @@ async function renderPendingApprovals() {
   }
   for (const p of data.pending) {
     if (p.sessionId !== state.sessionId || state.shownApprovals.has(p.id)) continue;
-    // 仅可查看模式：待审卡直接渲染为已自动拒绝（不提供允许入口）
+    // 仅可查看模式：待审卡引导用户切换权限（一键）
     if ((state.serverState || {}).mode === 'read-only') {
       state.shownApprovals.add(p.id);
       renderApprovalSkeleton({ type: 'approval_request', approvalId: p.id, tool: p.tool, action: p.action, detail: p.detail });
       const card0 = state.approvalCards.get(p.id);
       if (card0) {
         const v = card0.querySelector('.verdict');
-        if (v) { v.textContent = '👁 仅可查看模式：写入已自动拒绝'; v.className = 'verdict deny'; }
+        if (v) { v.innerHTML = '👁 当前为「仅可查看」模式，写入已被阻止'; v.className = 'verdict deny'; }
         const acts = card0.querySelector('.actions');
-        if (acts) acts.remove();
+        if (acts) {
+          acts.innerHTML = '<button class="allow" style="width:100%">切换为工作区权限后重试</button>';
+          acts.querySelector('.allow').onclick = async (e) => {
+            e.stopPropagation();
+            try {
+              await api('/api/settings', { method: 'POST', body: JSON.stringify({ mode: 'workspace-write', autoApprove: false }) });
+              appendNote('🛡 已切换为工作区权限 —— 请重新让 agent 执行该写入');
+              state.shownApprovals.delete(p.id);
+              state.approvalCards.delete(p.id);
+              card0.remove();
+              renderPendingApprovals();
+              loadState();
+            } catch (err) {
+              appendNote('切换失败：' + err.message, true);
+            }
+          };
+        }
       }
       continue;
     }

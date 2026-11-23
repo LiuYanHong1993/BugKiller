@@ -47,6 +47,12 @@ export class ToolRegistry {
           return { ok: false, output: `审批通道异常：${(err as Error).message}` };
         }
         if (!approved) {
+          if (ctx.readOnly) {
+            return {
+              ok: false,
+              output: '当前权限为「仅可查看」，本次写入已被系统阻止。请提示用户：点击输入框上方的权限徽章，切换为「工作区权限」或「完全权限」后重试。',
+            };
+          }
           return {
             ok: false,
             output: `用户拒绝了本次操作（${req.action}：${req.detail}）。不要重复同一方案，请调整或询问用户。`,
