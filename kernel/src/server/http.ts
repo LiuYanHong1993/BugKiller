@@ -615,6 +615,56 @@ export function startServer(deps: ServerDeps): Promise<string> {
         return json(res, 200, { ok: true, count: servers.length, note: '重启客户端后生效' });
       }
 
+      // ---- 长期记忆管理（data/memory/memory.jsonl 的 CRUD） ----
+      const memoryFile = resolve(deps.workspaceRoot, 'data', 'memory', 'memory.jsonl');
+      const readMemory = async (): Promise<Array<Record<string, unknown>>> => {
+        let text = '';
+        try { text = await readFile(memoryFile, 'utf8'); } catch { return []; }
+        const out: Array<Record<string, unknown>> = [];
+        for (const l of text.split('\n')) {
+          if (!l.trim()) continue;
+          try { out.push(JSON.parse(l) as Record<string, unknown>); } catch { /* 跳过损坏行 */ }
+        }
+        return out;
+      };
+      const writeMemory = async (recs: Array<Record<string, unknown>>): Promise<void> => {
+        await mkdir(resolve(deps.workspaceRoot, 'data', 'memory'), { recursive: true });
+        await writeFile(memoryFile, recs.map((r) => JSON.stringify(r)).join('\n') + (recs.length ? '\n' : ''), 'utf8');
+      };
+      if (pathname === '/api/memory' && req.method === 'GET') {
+        const recs = await readMemory();
+        return json(res, 200, { records: recs.map((r, i) => ({ i, ts: r.ts, content: r.content, tags: r.tags ?? [] })) });
+      }
+      if (pathname === '/api/memory' && req.method === 'POST') {
+        const body = await readJson(req);
+        const content = String(body?.content ?? '').trim();
+        if (!content) return json(res, 400, { error: '内容不能为空' });
+        const recs = await readMemory();
+        recs.push({ ts: new Date().toISOString(), content, ...(Array.isArray(body?.tags) && body.tags.length ? { tags: body.tags } : {}) });
+        await writeMemory(recs);
+        return json(res, 200, { ok: true, total: recs.length });
+      }
+      if (pathname === '/api/memory/update' && req.method === 'POST') {
+        const body = await readJson(req);
+        const i = Number(body?.i);
+        const recs = await readMemory();
+        if (!Number.isInteger(i) || i < 0 || i >= recs.length) return json(res, 404, { error: '记忆不存在' });
+        const content = String(body?.content ?? '').trim();
+        if (!content) return json(res, 400, { error: '内容不能为空' });
+        recs[i] = { ...recs[i], content, ...(Array.isArray(body?.tags) ? { tags: body.tags } : {}) };
+        await writeMemory(recs);
+        return json(res, 200, { ok: true });
+      }
+      if (pathname === '/api/memory/delete' && req.method === 'POST') {
+        const body = await readJson(req);
+        const i = Number(body?.i);
+        const recs = await readMemory();
+        if (!Number.isInteger(i) || i < 0 || i >= recs.length) return json(res, 404, { error: '记忆不存在' });
+        recs.splice(i, 1);
+        await writeMemory(recs);
+        return json(res, 200, { ok: true, total: recs.length });
+      }
+
       // ---- 工作区文件读写（内置文件浏览器用；守卫名单 + 大小上限） ----
       if (pathname === '/api/read' && req.method === 'GET') {
         const p = url.searchParams.get('path') ?? '';

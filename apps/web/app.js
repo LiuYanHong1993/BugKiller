@@ -3135,6 +3135,78 @@ function renderSettingsPage() {
     }
   };
 
+  // 长期记忆管理
+  const memCard = pageCard('长期记忆', 'agent 通过 memory_save 保存的持久记忆（MCP memory 服务）',
+    '<button class="pbtn accent" id="memAdd">＋ 添加记忆</button><button class="pbtn" id="memRefresh">刷新</button>');
+  const memBody = memCard.querySelector('.pc-body');
+  stream.appendChild(memCard);
+  let memRecords = [];
+  let memKw = '';
+  const drawMem = () => {
+    const list = memRecords.filter((r) => !memKw || String(r.content).toLowerCase().includes(memKw));
+    memBody.innerHTML =
+      `<div class="form-row"><input id="memKw" placeholder="搜索记忆内容…" value="${esc(memKw)}" /></div>` +
+      (list.length ? '' : `<div class="pc-empty">${memRecords.length ? '无匹配记忆' : '还没有任何记忆 —— agent 用 memory_save 保存，或点右上手工添加'}</div>`);
+    for (const r of list) {
+      const row = document.createElement('div');
+      row.className = 'prow';
+      row.innerHTML =
+        `<span class="prow-t" style="flex:1;min-width:0;white-space:normal">${esc(String(r.content))}${r.tags && r.tags.length ? ` <span class="dim">[${esc(r.tags.join(','))}]</span>` : ''}</span>` +
+        `<span class="prow-time">${esc(String(r.ts || '').slice(0, 16).replace('T', ' '))}</span>` +
+        `<span class="prow-ops"><button class="pbtn" data-edit>编辑</button><button class="pbtn danger" data-del>删除</button></span>`;
+      memBody.appendChild(row);
+      row.querySelector('[data-edit]').onclick = () => {
+        const nt = prompt('编辑记忆内容：', String(r.content));
+        if (nt === null || !nt.trim() || nt.trim() === r.content) return;
+        api('/api/memory/update', { method: 'POST', body: JSON.stringify({ i: r.i, content: nt.trim() }) })
+          .then(loadMem)
+          .catch((e) => alert('保存失败：' + e.message));
+      };
+      row.querySelector('[data-del]').onclick = async () => {
+        if (!(await uiConfirm(`删除这条记忆？`, { title: '删除记忆', danger: true, okText: '删除' }))) return;
+        api('/api/memory/delete', { method: 'POST', body: JSON.stringify({ i: r.i }) })
+          .then(loadMem)
+          .catch((e) => alert('删除失败：' + e.message));
+      };
+    }
+    const kw = memBody.querySelector('#memKw');
+    if (kw) kw.addEventListener('input', (e) => { memKw = e.target.value.trim().toLowerCase(); drawMem(); const k2 = memBody.querySelector('#memKw'); if (k2) { k2.focus(); k2.setSelectionRange(k2.value.length, k2.value.length); } });
+  };
+  const loadMem = async () => {
+    try {
+      memRecords = (await api('/api/memory')).records || [];
+      drawMem();
+    } catch (e) {
+      memBody.innerHTML = `<div class="pc-empty">读取失败：${esc(e.message)}</div>`;
+    }
+  };
+  memCard.querySelector('#memRefresh').onclick = loadMem;
+  memCard.querySelector('#memAdd').onclick = () => {
+    const f = memCard.querySelector('.mem-form') || document.createElement('div');
+    if (memCard.querySelector('.mem-form')) { f.remove(); return; }
+    f.className = 'mem-form tpl-form';
+    f.innerHTML =
+      `<div class="form-row"><label>记忆内容</label><textarea id="mfText" rows="3" placeholder="如：用户偏好深色界面"></textarea></div>` +
+      `<div class="form-row"><label>标签（可选，逗号分隔）</label><input id="mfTags" placeholder="偏好,界面" /></div>` +
+      `<div class="ne-foot"><button class="pbtn" id="mfCancel">取消</button><button class="pbtn accent" id="mfSave">保存</button></div>`;
+    mcpCard.parentNode.insertBefore(f, mcpCard.nextSibling ? mcpCard.nextSibling : null);
+    stream.insertBefore(f, memCard.nextSibling);
+    f.querySelector('#mfCancel').onclick = () => f.remove();
+    f.querySelector('#mfSave').onclick = async () => {
+      const text = f.querySelector('#mfText').value.trim();
+      if (!text) { alert('内容不能为空'); return; }
+      const tags = f.querySelector('#mfTags').value.split(',').map((x) => x.trim()).filter(Boolean);
+      try {
+        await api('/api/memory', { method: 'POST', body: JSON.stringify({ content: text, tags }) });
+        f.remove();
+        loadMem();
+      } catch (e) {
+        alert('保存失败：' + e.message);
+      }
+    };
+  };
+  loadMem();
+
   // 审计入口
   const auditCard = pageCard('审计日志', '全部会话的审批请求与决策留痕（工具执行守卫）',
     '<button class="pbtn accent" id="auditOpen">打开审计日志</button>');
