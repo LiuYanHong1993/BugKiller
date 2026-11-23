@@ -589,6 +589,32 @@ export function startServer(deps: ServerDeps): Promise<string> {
         });
       }
 
+      // ---- MCP 连接器配置（读 / 保存；保存后重启内核生效） ----
+      if (pathname === '/api/mcp' && req.method === 'GET') {
+        const file = resolve(deps.workspaceRoot, 'policy', 'mcp-servers.json');
+        let servers: Array<Record<string, unknown>> = [];
+        try {
+          const cfg = JSON.parse(await readFile(file, 'utf8')) as { servers?: Array<Record<string, unknown>> };
+          servers = cfg.servers ?? [];
+        } catch { /* 无配置文件 */ }
+        return json(res, 200, { servers, summary: deps.mcpSummary });
+      }
+      if (pathname === '/api/mcp/config' && req.method === 'POST') {
+        const body = await readJson(req);
+        const servers = Array.isArray(body?.servers) ? body.servers as Array<Record<string, unknown>> : [];
+        for (const sv of servers) {
+          if (!String(sv.name ?? '').trim()) return json(res, 400, { error: '每个连接器都需要 name' });
+          if (!String(sv.command ?? '').trim() && !String(sv.url ?? '').trim()) {
+            return json(res, 400, { error: `连接器 ${sv.name} 缺少 command 或 url` });
+          }
+        }
+        const file = resolve(deps.workspaceRoot, 'policy', 'mcp-servers.json');
+        await mkdir(resolve(deps.workspaceRoot, 'policy'), { recursive: true });
+        await writeFile(file, JSON.stringify({ schemaVersion: 1, servers }, null, 2) + '\n', 'utf8');
+        deps.log(`[mcp] 配置已保存（${servers.length} 个连接器），重启后生效`);
+        return json(res, 200, { ok: true, count: servers.length, note: '重启客户端后生效' });
+      }
+
       // ---- 工作区文件读写（内置文件浏览器用；守卫名单 + 大小上限） ----
       if (pathname === '/api/read' && req.method === 'GET') {
         const p = url.searchParams.get('path') ?? '';

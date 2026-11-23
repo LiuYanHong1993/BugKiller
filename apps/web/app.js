@@ -3079,6 +3079,62 @@ function renderSettingsPage() {
     `<div class="ne-foot"><button class="pbtn accent" id="setSave">保存设置</button></div>`;
   stream.appendChild(modelCard);
 
+  // MCP 连接器管理
+  const mcpCard = pageCard('MCP 连接器', '增删 / 启停外部工具服务器；保存后重启客户端生效',
+    '<button class="pbtn accent" id="mcpAdd">＋ 添加连接器</button><button class="pbtn" id="mcpSave">保存配置</button>');
+  const mcpBody = mcpCard.querySelector('.pc-body');
+  stream.appendChild(mcpCard);
+  let mcpServers = [];
+  const drawMcp = () => {
+    mcpBody.innerHTML = mcpServers.length ? '' : '<div class="pc-empty">暂无连接器 —— 点右上「＋ 添加连接器」（当前内置：memory 记忆服务）</div>';
+    for (const [i, sv] of mcpServers.entries()) {
+      const row = document.createElement('div');
+      row.className = 'prow';
+      const transport = sv.url ? `HTTP ${esc(truncate(sv.url, 40))}` : `stdio ${esc(truncate(String(sv.command || '') + ' ' + (sv.args || []).join(' '), 46))}`;
+      row.innerHTML =
+        `<span class="prow-t">${esc(sv.name)}${sv.enabled === false ? ' <span class="dim">（停用）</span>' : ''}</span>` +
+        `<span class="prow-time">${transport}</span>` +
+        `<span class="prow-ops"><label class="switch"><input type="checkbox" data-en ${sv.enabled === false ? '' : 'checked'} /><span>${sv.enabled === false ? '停用' : '启用'}</span></label>` +
+        `<button class="pbtn danger" data-del>删除</button></span>`;
+      mcpBody.appendChild(row);
+      row.querySelector('[data-en]').onchange = (e) => { sv.enabled = e.target.checked; drawMcp(); };
+      row.querySelector('[data-del]').onclick = () => { mcpServers.splice(i, 1); drawMcp(); };
+    }
+  };
+  (async () => {
+    try {
+      const d = await api('/api/mcp');
+      mcpServers = d.servers || [];
+      drawMcp();
+    } catch (e) {
+      mcpBody.innerHTML = `<div class="pc-empty">读取失败：${esc(e.message)}</div>`;
+    }
+  })();
+  mcpCard.querySelector('#mcpAdd').onclick = () => {
+    const name = prompt('连接器名称（如 filesystem）：');
+    if (!name || !name.trim()) return;
+    const kind = confirm('确定 = HTTP 远程服务器；取消 = 本地 stdio 命令');
+    if (kind) {
+      const url = prompt('服务器 URL（streamable http）：', 'http://');
+      if (!url) return;
+      mcpServers.push({ name: name.trim(), url: url.trim(), enabled: true });
+    } else {
+      const command = prompt('启动命令（$NODE = 当前 Node）：', 'npx');
+      if (!command) return;
+      const argsStr = prompt('参数（空格分隔）：', '-y @some/mcp-server');
+      mcpServers.push({ name: name.trim(), command: command.trim(), args: (argsStr || '').split(' ').filter(Boolean), enabled: true });
+    }
+    drawMcp();
+  };
+  mcpCard.querySelector('#mcpSave').onclick = async () => {
+    try {
+      const r = await api('/api/mcp/config', { method: 'POST', body: JSON.stringify({ servers: mcpServers }) });
+      appendNote(`🔌 MCP 配置已保存（${r.count} 个连接器）—— 重启客户端后生效`);
+    } catch (e) {
+      alert('保存失败：' + e.message);
+    }
+  };
+
   // 审计入口
   const auditCard = pageCard('审计日志', '全部会话的审批请求与决策留痕（工具执行守卫）',
     '<button class="pbtn accent" id="auditOpen">打开审计日志</button>');

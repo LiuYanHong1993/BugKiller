@@ -4,8 +4,13 @@
     {
       "name": "memory",
       "command": "$NODE",
-      "args": ["--experimental-strip-types", "--no-warnings", "kernel/src/mcp/servers/memory.ts"],
-      "note": "自研最小 MCP 记忆服务器（stdio），$NODE 展开为当前 node 可执行文件"
+      "args": [
+        "--experimental-strip-types",
+        "--no-warnings",
+        "kernel/src/mcp/servers/memory.ts"
+      ],
+      "note": "自研最小 MCP 记忆服务器（stdio），$NODE 展开为当前 node 可执行文件",
+      "enabled": true
     }
   ]
 }

@@ -20,6 +20,8 @@ interface ServerDecl {
   args?: string[];
   url?: string;
   headers?: Record<string, string>;
+  /** false = 停用（保留配置但不在本次启动挂载） */
+  enabled?: boolean;
 }
 
 export async function mountMcpServers(
@@ -34,6 +36,10 @@ export async function mountMcpServers(
   const mounts: McpMount[] = [];
 
   for (const decl of cfg.servers ?? []) {
+    if (decl.enabled === false) {
+      ctx.log(`[mcp] ${decl.name} 已停用，跳过`);
+      continue;
+    }
     try {
       let client: McpClientLike;
       if (decl.url) {
