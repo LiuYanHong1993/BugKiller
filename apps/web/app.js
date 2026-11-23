@@ -2705,6 +2705,19 @@ async function renderPendingApprovals() {
   }
   for (const p of data.pending) {
     if (p.sessionId !== state.sessionId || state.shownApprovals.has(p.id)) continue;
+    // 仅可查看模式：待审卡直接渲染为已自动拒绝（不提供允许入口）
+    if ((state.serverState || {}).mode === 'read-only') {
+      state.shownApprovals.add(p.id);
+      renderApprovalSkeleton({ type: 'approval_request', approvalId: p.id, tool: p.tool, action: p.action, detail: p.detail });
+      const card0 = state.approvalCards.get(p.id);
+      if (card0) {
+        const v = card0.querySelector('.verdict');
+        if (v) { v.textContent = '👁 仅可查看模式：写入已自动拒绝'; v.className = 'verdict deny'; }
+        const acts = card0.querySelector('.actions');
+        if (acts) acts.remove();
+      }
+      continue;
+    }
     state.shownApprovals.add(p.id);
     let card = state.approvalCards.get(p.id);
     if (!card) {

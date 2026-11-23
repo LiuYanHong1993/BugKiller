@@ -427,6 +427,11 @@ export function startServer(deps: ServerDeps): Promise<string> {
       m = pathname.match(/^\/api\/approvals\/([a-f0-9]+)\/decision$/);
       if (m && req.method === 'POST') {
         const body = await readJson(req);
+        // 仅可查看模式：批准写入的请求一律强制拒绝（待审卡即时失效）
+        if (body?.approved === true && runtime.mode === 'read-only') {
+          deps.broker.decide(m[1]!, false);
+          return json(res, 200, { ok: true, forced: 'read-only' });
+        }
         const ok = deps.broker.decide(m[1]!, body?.approved === true);
         // 审批记忆：勾选「总是允许」→ 本会话内该工具后续直接放行
         if (ok && body?.approved === true && typeof body?.rememberTool === 'string' && body.rememberTool) {
@@ -757,6 +762,14 @@ export function startServer(deps: ServerDeps): Promise<string> {
       sandbox,
       readOnly: runtime.mode === 'read-only',
       approval: async (req) => {
+        // 仅可查看模式：写类操作直接拒绝（含回合进行中切换权限的情形）
+        if (runtime.mode === 'read-only') {
+          const evr = await deps.store.append(sessionId, 'note', { text: `👁 仅可查看模式：${req.action}（${req.tool}）已自动拒绝` });
+          emit?.('note', evr as unknown as Record<string, unknown>);
+          const evd = await deps.store.append(sessionId, 'approval_decision', { approved: false, auto: true, reason: 'read-only' });
+          emit?.('approval_decision', evd as unknown as Record<string, unknown>);
+          return false;
+        }
         // 审批记忆：本会话已允许过的工具直接放行
         if (allowlist.get(sessionId)?.has(req.tool)) {
           const ev0 = await deps.store.append(sessionId, 'approval_decision', { approved: true, remembered: true });
