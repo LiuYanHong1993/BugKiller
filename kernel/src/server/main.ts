@@ -12,6 +12,20 @@ import { loadPolicy } from '../policy.ts';
 import { ApprovalBroker } from './approvals.ts';
 import { startServer } from './http.ts';
 import { mountMcpServers } from '../mcp/index.ts';
+import { logLine } from './logbuf.ts';
+
+// 接管 console 输出：写入环形缓冲（/api/logs 查看）+ 原样输出到 stdout（客户端捕获）
+const origStdoutWrite = process.stdout.write.bind(process.stdout);
+console.log = (...a: unknown[]): void => {
+  const line = a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
+  logLine(line);
+  origStdoutWrite(line + '\n');
+};
+console.error = (...a: unknown[]): void => {
+  const line = '[err] ' + a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
+  logLine(line);
+  origStdoutWrite(line + '\n');
+};
 import { loadPlugins } from '../plugins/loader.ts';
 
 async function main(): Promise<void> {

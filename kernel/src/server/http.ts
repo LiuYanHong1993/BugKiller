@@ -19,6 +19,7 @@ import type { ApprovalBroker } from './approvals.ts';
 import { runTurn, runTurnStream } from '../agent/loop.ts';
 import { buildSystemPrompt } from '../agent/system-prompt.ts';
 import { SandboxSession, assertGuardedPath, assertSizeOk, rollbackFile } from '../sandbox/session.ts';
+import { logTail, logClear } from './logbuf.ts';
 import { loadSandboxPolicy } from '../sandbox/policy.ts';
 import { loadTodos } from '../tools/todo.ts';
 import { mkdir, readdir, readFile, rm, stat, writeFile, appendFile } from 'node:fs/promises';
@@ -613,6 +614,15 @@ export function startServer(deps: ServerDeps): Promise<string> {
         await writeFile(file, JSON.stringify({ schemaVersion: 1, servers }, null, 2) + '\n', 'utf8');
         deps.log(`[mcp] 配置已保存（${servers.length} 个连接器），重启后生效`);
         return json(res, 200, { ok: true, count: servers.length, note: '重启客户端后生效' });
+      }
+
+      // ---- 内核日志（环形缓冲查看） ----
+      if (pathname === '/api/logs' && req.method === 'GET') {
+        return json(res, 200, { lines: logTail(400) });
+      }
+      if (pathname === '/api/logs/clear' && req.method === 'POST') {
+        logClear();
+        return json(res, 200, { ok: true });
       }
 
       // ---- 长期记忆管理（data/memory/memory.jsonl 的 CRUD） ----

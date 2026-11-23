@@ -3207,7 +3207,51 @@ function renderSettingsPage() {
   };
   loadMem();
 
-  // 审计入口
+  // 内核日志查看器
+  const logCard = pageCard('内核日志', '实时查看内核运行日志（最近 400 行）',
+    '<button class="pbtn accent" id="logOpen">打开日志查看器</button>');
+  stream.appendChild(logCard);
+  logCard.querySelector('#logOpen').onclick = () => {
+    const old = $('logPanel');
+    if (old) { old.remove(); return; }
+    const panel = document.createElement('div');
+    panel.id = 'logPanel';
+    panel.className = 'log-panel';
+    panel.innerHTML =
+      `<div class="log-bar"><input id="logKw" placeholder="过滤关键词…" />` +
+      `<label class="switch"><input type="checkbox" id="logAuto" checked /><span>自动刷新</span></label>` +
+      `<button class="pbtn" id="logClear">清空</button><button class="pbtn" id="logClose">关闭</button></div>` +
+      `<pre id="logPre" class="log-pre"></pre>`;
+    stream.insertBefore(panel, logCard.nextSibling);
+    const pre = panel.querySelector('#logPre');
+    const kwIn = panel.querySelector('#logKw');
+    let timer = null;
+    const draw = async () => {
+      try {
+        const d = await api('/api/logs');
+        const kw = kwIn.value.trim().toLowerCase();
+        const lines = (d.lines || []).filter((l) => !kw || l.toLowerCase().includes(kw));
+        const stick = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 24;
+        pre.textContent = lines.join('\n') || '(空)';
+        if (stick) pre.scrollTop = pre.scrollHeight;
+      } catch { /* 忽略 */ }
+    };
+    const startAuto = () => {
+      if (timer) { clearInterval(timer); timer = null; }
+      if (panel.querySelector('#logAuto').checked) { draw(); timer = setInterval(draw, 2000); }
+    };
+    kwIn.addEventListener('input', draw);
+    panel.querySelector('#logAuto').onchange = startAuto;
+    panel.querySelector('#logClear').onclick = async () => {
+      await api('/api/logs/clear', { method: 'POST' }).catch(() => {});
+      draw();
+    };
+    panel.querySelector('#logClose').onclick = () => {
+      if (timer) clearInterval(timer);
+      panel.remove();
+    };
+    startAuto();
+  };
   const auditCard = pageCard('审计日志', '全部会话的审批请求与决策留痕（工具执行守卫）',
     '<button class="pbtn accent" id="auditOpen">打开审计日志</button>');
   stream.appendChild(auditCard);
