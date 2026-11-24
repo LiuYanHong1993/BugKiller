@@ -3294,6 +3294,48 @@ function renderSettingsPage() {
       }
     });
   };
+    // Token 用量仪表
+  const usageCard = pageCard('Token 用量', '按日聚合全部会话的模型用量（含思考）');
+  const uBody = usageCard.querySelector('.pc-body');
+  stream.appendChild(usageCard);
+  const drawUsage = async () => {
+    uBody.innerHTML = '<div class="pc-empty">统计中…</div>';
+    try {
+      const d = await api('/api/usage');
+      const days = d.days || [];
+      const todayTok = d.today ? d.today.tokens : 0;
+      const limit = d.limit;
+      const over = limit && todayTok > limit;
+      const maxV = Math.max(...days.map((x) => x.tokens), 1);
+      const bars = days.map((x) => {
+        const h = Math.max(3, Math.round((x.tokens / maxV) * 64));
+        const isToday = x.day === new Date().toISOString().slice(0, 10);
+        return `<div class="u-bar-col"><div class="u-bar${isToday ? ' today' : ''}${over && isToday ? ' over' : ''}" style="height:${h}px" title="${x.day} · ${x.tokens.toLocaleString()} tok · ${x.calls} 次"></div><span>${x.day.slice(5)}</span></div>`;
+      }).join('');
+      uBody.innerHTML =
+        `<div class="u-today">今日 <b style="font-family:var(--mono)">${todayTok.toLocaleString()}</b> tok · ${d.today ? d.today.calls : 0} 次调用` +
+        (limit ? ` / 上限 ${limit.toLocaleString()}` : '') +
+        (over ? ` <span class="bad" style="font-weight:700">⚠ 已超限</span>` : '') +
+        `</div>` +
+        `<div class="u-bars">${bars}</div>` +
+        `<div class="form-row" style="margin-top:10px"><label>每日 Token 上限（留空 = 不限制）</label>` +
+        `<div style="display:flex;gap:8px"><input id="uLimit" type="number" min="1" step="10000" placeholder="不限制" value="${limit ?? ''}" style="flex:1" /><button class="pbtn" id="uLimitSave">保存</button></div></div>`;
+      uBody.querySelector('#uLimitSave').onclick = async () => {
+        const v = uBody.querySelector('#uLimit').value.trim();
+        try {
+          await api('/api/settings', { method: 'POST', body: JSON.stringify({ tokenDailyLimit: v ? Number(v) : null }) });
+          appendNote('📊 Token 上限已更新');
+          drawUsage();
+        } catch (e) {
+          alert('保存失败：' + e.message);
+        }
+      };
+    } catch (e) {
+      uBody.innerHTML = `<div class="pc-empty">统计失败：${esc(e.message)}</div>`;
+    }
+  };
+  drawUsage();
+
   const logCard = pageCard('内核日志', '实时查看内核运行日志（最近 400 行）',
     '<button class="pbtn accent" id="logOpen">打开日志查看器</button>');
   stream.appendChild(logCard);

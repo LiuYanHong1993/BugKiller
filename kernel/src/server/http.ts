@@ -39,6 +39,8 @@ export interface ServerDeps {
   vision?: ModelPreset | null;
   /** 模型参数（temperature / maxTokens）：设置页在线调节，runTurn 时注入每次请求 */
   params?: { temperature?: number; maxTokens?: number } | null;
+  /** 每日 Token 上限（用量仪表提醒用；null = 不限制） */
+  tokenDailyLimit?: number | null;
   log: (line: string) => void;
 }
 
@@ -111,6 +113,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
   const runtime = {
     autoApprove: deps.policy.autoApprove === true,
     mode: deps.policy.mode || 'workspace-write',
+    tokenDailyLimit: null as number | null,
     vision: deps.vision ? { baseUrl: deps.vision.baseUrl, model: deps.vision.model } : null,
     params: {
       temperature: typeof deps.params?.temperature === 'number' ? deps.params.temperature : 0.4,
@@ -159,7 +162,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
     await writeFile(
       resolve(dir, 'kernel-settings.json'),
       JSON.stringify(
-        { baseUrl: cfg.baseUrl, model: cfg.model, autoApprove: runtime.autoApprove, mode: runtime.mode, vision: runtime.vision, params: runtime.params },
+        { baseUrl: cfg.baseUrl, model: cfg.model, autoApprove: runtime.autoApprove, mode: runtime.mode, vision: runtime.vision, params: runtime.params, tokenDailyLimit: runtime.tokenDailyLimit },
         null,
         2,
       ),
@@ -228,6 +231,8 @@ export function startServer(deps: ServerDeps): Promise<string> {
         if (typeof body?.autoApprove === 'boolean') runtime.autoApprove = body.autoApprove;
         // 权限模式：仅可查看（agent 只读）⇄ 工作区写
         if (body?.mode === 'read-only' || body?.mode === 'workspace-write') runtime.mode = body.mode;
+        // 每日 Token 上限（null = 不限制）
+        runtime.tokenDailyLimit = typeof body?.tokenDailyLimit === 'number' && body.tokenDailyLimit > 0 ? body.tokenDailyLimit : null;
         // 模型参数（temperature 0-1 / maxTokens 正整数或 null=默认）
         if (body?.params && typeof body.params === 'object') {
           const p = body.params as { temperature?: unknown; maxTokens?: unknown };
@@ -692,6 +697,40 @@ export function startServer(deps: ServerDeps): Promise<string> {
         } catch { /* 无事件 */ }
         try { result = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8')); } catch { /* 无结果 */ }
         return json(res, 200, { events, result });
+      }
+
+      // ---- Token 用量仪表（按日聚合所有会话的 usage 事件） ----
+      if (pathname === '/api/usage' && req.method === 'GET') {
+        const summaries = await deps.store.list().catch(() => []);
+        const byDay = new Map<string, { tokens: number; calls: number }>();
+        for (const s of summaries.slice(0, 120)) {
+          let text = '';
+          try { text = await readFile(s.file, 'utf8'); } catch { continue; }
+          for (const l of text.split('\n')) {
+            if (!l.trim()) continue;
+            let e: Record<string, unknown>;
+            try { e = JSON.parse(l) as Record<string, unknown>; } catch { continue; }
+            if (e.type !== 'assistant' || !e.usage) continue;
+            const u = e.usage as Record<string, unknown>;
+            const total = Number(u.total_tokens ?? 0);
+            if (!total || typeof e.ts !== 'string') continue;
+            const day = e.ts.slice(0, 10);
+            const cur = byDay.get(day) ?? { tokens: 0, calls: 0 };
+            cur.tokens += total;
+            cur.calls += 1;
+            byDay.set(day, cur);
+          }
+        }
+        const days = [...byDay.entries()]
+          .map(([day, v]) => ({ day, ...v }))
+          .sort((a, b) => (a.day < b.day ? -1 : 1))
+          .slice(-14);
+        const today = new Date().toISOString().slice(0, 10);
+        return json(res, 200, {
+          days,
+          today: byDay.get(today) ?? { tokens: 0, calls: 0 },
+          limit: typeof runtime.tokenDailyLimit === 'number' ? runtime.tokenDailyLimit : null,
+        });
       }
 
       // ---- 数据备份与恢复（data/ 核心 + notes/ 打包为单文件 JSON） ----
