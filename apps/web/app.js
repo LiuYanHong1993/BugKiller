@@ -3207,7 +3207,50 @@ function renderSettingsPage() {
   };
   loadMem();
 
-  // 内核日志查看器
+  // 数据备份与恢复
+  const bkCard = pageCard('数据备份与恢复', '导出会话 / 记忆 / 任务 / 附件 / 笔记为单文件 JSON；导入还原（覆盖同名）');
+  const bkBody = bkCard.querySelector('.pc-body');
+  bkBody.innerHTML =
+    `<div class="ne-foot" style="gap:8px;display:flex">` +
+    `<button class="pbtn accent" id="bkExport">📤 导出备份</button>` +
+    `<button class="pbtn" id="bkImport">📥 导入恢复</button>` +
+    `<input type="file" id="bkFile" accept=".json" style="display:none" /></div>` +
+    `<div class="pc-empty">备份内容：会话记录、长期记忆、任务清单、附件、笔记。恢复后建议重启客户端。</div>`;
+  stream.appendChild(bkCard);
+  bkCard.querySelector('#bkExport').onclick = async () => {
+    try {
+      const res = await fetch(`/api/backup/export`, { headers: { authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `bugkiller-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      appendNote('📤 备份已导出');
+    } catch (e) {
+      appendNote('导出失败：' + e.message, true);
+    }
+  };
+  bkCard.querySelector('#bkImport').onclick = () => bkCard.querySelector('#bkFile').click();
+  bkCard.querySelector('#bkFile').onchange = (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    f.text().then(async (text) => {
+      let data;
+      try { data = JSON.parse(text); } catch { alert('不是有效的备份文件'); return; }
+      if (!data.files) { alert('备份文件缺少 files 字段'); return; }
+      if (!(await uiConfirm(`导入将覆盖现有的会话 / 记忆 / 笔记等（共 ${Object.keys(data.files).length} 个文件），继续？`, { title: '导入恢复', okText: '导入' }))) return;
+      try {
+        const r = await api('/api/backup/import', { method: 'POST', body: JSON.stringify(data) });
+        appendNote(`📥 已还原 ${r.restored} 个文件 —— 建议重启客户端使全部数据生效`);
+        refreshSessions();
+      } catch (err) {
+        alert('导入失败：' + err.message);
+      }
+    });
+  };
   const logCard = pageCard('内核日志', '实时查看内核运行日志（最近 400 行）',
     '<button class="pbtn accent" id="logOpen">打开日志查看器</button>');
   stream.appendChild(logCard);

@@ -616,6 +616,55 @@ export function startServer(deps: ServerDeps): Promise<string> {
         return json(res, 200, { ok: true, count: servers.length, note: '重启客户端后生效' });
       }
 
+      // ---- 数据备份与恢复（data/ 核心 + notes/ 打包为单文件 JSON） ----
+      const BACKUP_DIRS = ['sessions', 'memory', 'todos', 'attachments'];
+      if (pathname === '/api/backup/export' && req.method === 'GET') {
+        const files: Record<string, string> = {};
+        const collect = async (dir: string, prefix: string): Promise<void> => {
+          let names: string[] = [];
+          try { names = await readdir(dir); } catch { return; }
+          for (const n of names) {
+            const full = join(dir, n);
+            const st = await stat(full).catch(() => null);
+            if (!st) continue;
+            if (st.isDirectory()) await collect(full, `${prefix}/${n}`);
+            else {
+              if (st.size > 12 * 1024 * 1024) continue; // 单文件 12MB 上限
+              const buf = await readFile(full);
+              files[`${prefix}/${n}`] = buf.toString('base64');
+            }
+          }
+        };
+        for (const d of BACKUP_DIRS) await collect(resolve(deps.workspaceRoot, 'data', d), `data/${d}`);
+        await collect(resolve(deps.workspaceRoot, 'notes'), 'notes');
+        res.writeHead(200, {
+          'content-type': 'application/json; charset=utf-8',
+          'content-disposition': `attachment; filename="bugkiller-backup-${new Date().toISOString().slice(0, 10)}.json"`,
+          'cache-control': 'no-store',
+        });
+        res.end(JSON.stringify({ app: 'BugKiller', version: 1, createdAt: new Date().toISOString(), files }));
+        return;
+      }
+      if (pathname === '/api/backup/import' && req.method === 'POST') {
+        const body = await readJson(req);
+        const files = (body?.files ?? {}) as Record<string, string>;
+        let restored = 0;
+        for (const [rel, b64] of Object.entries(files)) {
+          if (!/^(data|notes)\/[A-Za-z0-9._\-\/]+$/.test(rel) || rel.includes('..')) continue; // 白名单路径
+          if (typeof b64 !== 'string' || b64.length > 20 * 1024 * 1024) continue;
+          try {
+            const abs = resolve(deps.workspaceRoot, rel);
+            if (relative(deps.workspaceRoot, abs).startsWith('..')) continue;
+            await mkdir(join(abs, '..'), { recursive: true });
+            await writeFile(abs, Buffer.from(b64, 'base64'));
+            restored += 1;
+          } catch { /* 跳过坏条目 */ }
+        }
+        histories.clear(); // 会话历史缓存作废
+        deps.log(`[backup] 已还原 ${restored} 个文件`);
+        return json(res, 200, { ok: true, restored });
+      }
+
       // ---- 内核日志（环形缓冲查看） ----
       if (pathname === '/api/logs' && req.method === 'GET') {
         return json(res, 200, { lines: logTail(400) });
