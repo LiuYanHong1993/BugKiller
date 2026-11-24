@@ -434,7 +434,7 @@ namespace AgentPlatform
                     if (away && isDone)
                     {
                         // 只发自绘提示窗（系统气泡在 Win11 会重复成白色 toast，视觉割裂）
-                        NotifyToast.ShowToast("BugKiller · 回合已完成", "点托盘图标回到窗口查看结果");
+                        NotifyToast.ShowToast("BugKiller · 回合已完成", "点击查看结果", delegate { ShowMain(); });
                         ClientController.Log("[notify] 自绘提示已调用");
                     }
                 }
