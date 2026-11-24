@@ -6,6 +6,7 @@ import { writeFileTool } from './write-file.ts';
 import { runCommandTool } from './run-command.ts';
 import { webFetchTool } from './web-fetch.ts';
 import { todoWriteTool, todoReadTool } from './todo.ts';
+import { createDelegateTool } from './delegate.ts';
 
 export function createDefaultRegistry(): ToolRegistry {
   const reg = new ToolRegistry();
@@ -15,6 +16,7 @@ export function createDefaultRegistry(): ToolRegistry {
   reg.register(webFetchTool);
   reg.register(todoWriteTool);
   reg.register(todoReadTool);
+  reg.register(createDelegateTool(reg)); // 子代理委派（只读白名单，最后注册）
   return reg;
 }
 

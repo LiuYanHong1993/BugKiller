@@ -1,6 +1,6 @@
 // 工具协议：定义、上下文与审批门
 
-import type { JsonSchema, ToolSpec } from '../llm/types.ts';
+import type { ChatMessage, JsonSchema, ToolSpec } from '../llm/types.ts';
 
 export interface ApprovalRequest {
   tool: string;
@@ -10,7 +10,19 @@ export interface ApprovalRequest {
 
 export type ApprovalGate = (req: ApprovalRequest) => Promise<boolean>;
 
+/** 子代理用的最小对话请求/响应结构 */
+export interface SubagentChatRequest {
+  messages: ChatMessage[];
+  tools?: ToolSpec[];
+  temperature?: number;
+}
+export interface SubagentChatResponse {
+  choices: Array<{ message: { content?: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
+}
+
 export interface ToolContext {
+  /** 子代理（delegate 工具）用的模型对话入口 */
+  chat?: (req: SubagentChatRequest) => Promise<SubagentChatResponse>;
   /** 工具只能访问该目录内部（workspace 约束） */
   workspaceRoot: string;
   approval: ApprovalGate;

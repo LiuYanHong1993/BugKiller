@@ -902,6 +902,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
       sessionId,
       sandbox,
       readOnly: runtime.mode === 'read-only',
+      chat: (req) => deps.provider.chat(req as Parameters<typeof deps.provider.chat>[0]),
       approval: async (req) => {
         // 仅可查看模式：写类操作直接拒绝（含回合进行中切换权限的情形）
         if (runtime.mode === 'read-only') {

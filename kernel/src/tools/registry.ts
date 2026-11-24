@@ -70,7 +70,7 @@ export class ToolRegistry {
   }
 }
 
-function cap(text: string): string {
+export function cap(text: string): string {
   if (text.length <= MAX_OUTPUT_CHARS) return text;
   return `${text.slice(0, MAX_OUTPUT_CHARS)}\n…[输出超限截断，原始 ${text.length} 字符]`;
 }
