@@ -136,9 +136,11 @@ export class WorkflowEngine {
 }
 
 function interpolate(prompt: string, outputs: Record<string, string>): string {
-  return prompt.replace(/\$\{([A-Za-z0-9_]+)\}/g, (raw, id: string) =>
-    id in outputs ? outputs[id]! : raw,
-  );
+  // 两种占位写法都支持：${id} 与 {{id}}
+  const sub = (raw: string, id: string) => (id in outputs ? outputs[id]! : raw);
+  return prompt
+    .replace(/\$\{([A-Za-z0-9_]+)\}/g, sub)
+    .replace(/\{\{([A-Za-z0-9_]+)\}\}/g, sub);
 }
 
 function now(): string {

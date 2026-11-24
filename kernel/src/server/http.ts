@@ -20,6 +20,7 @@ import { runTurn, runTurnStream } from '../agent/loop.ts';
 import { buildSystemPrompt } from '../agent/system-prompt.ts';
 import { SandboxSession, assertGuardedPath, assertSizeOk, rollbackFile } from '../sandbox/session.ts';
 import { logTail, logClear } from './logbuf.ts';
+import { WorkflowEngine } from '../../../workflow/src/engine.ts';
 import { loadSandboxPolicy } from '../sandbox/policy.ts';
 import { loadTodos } from '../tools/todo.ts';
 import { mkdir, readdir, readFile, rm, stat, writeFile, appendFile } from 'node:fs/promises';
@@ -620,6 +621,77 @@ export function startServer(deps: ServerDeps): Promise<string> {
         await writeFile(file, JSON.stringify({ schemaVersion: 1, servers }, null, 2) + '\n', 'utf8');
         deps.log(`[mcp] 配置已保存（${servers.length} 个连接器），重启后生效`);
         return json(res, 200, { ok: true, count: servers.length, note: '重启客户端后生效' });
+      }
+
+      // ---- 工作流运行器（DAG 引擎 + SSE 事件流） ----
+      if (pathname === '/api/workflow/run' && req.method === 'POST') {
+        const body = await readJson(req);
+        let def: { name?: unknown; steps?: unknown };
+        try {
+          def = typeof body?.json === 'string' ? JSON.parse(body.json) : body?.def;
+        } catch {
+          return json(res, 400, { error: 'workflow JSON 不合法' });
+        }
+        if (!def || !Array.isArray(def.steps) || def.steps.length === 0) {
+          return json(res, 400, { error: '缺少 steps（工作流至少要一个步骤）' });
+        }
+        if (def.steps.length > 20) return json(res, 400, { error: '步骤数超上限（20）' });
+        for (const st of def.steps as Array<{ id?: unknown; prompt?: unknown }>) {
+          if (!String(st.id ?? '').trim() || !String(st.prompt ?? '').trim()) {
+            return json(res, 400, { error: '每个步骤都需要 id 与 prompt' });
+          }
+        }
+        const sse = (event: string, data: unknown): void => {
+          try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* 断开 */ }
+        };
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
+        const wsRoot = await getWorkspaceRoot(String(body?.session ?? ''));
+        const engine = new WorkflowEngine({
+          runDir: resolve(deps.workspaceRoot, 'data', 'workflows'),
+          runner: async (prompt: string) => {
+            const r = await deps.provider.chat({
+              messages: [
+                { role: 'system', content: `你在执行一个工作流步骤。工作区：${wsRoot}。直接给出该步骤的产出（Markdown），不要反问。` },
+                { role: 'user', content: prompt },
+              ],
+              temperature: 0.4,
+            } as Parameters<typeof deps.provider.chat>[0]);
+            return r.choices[0]?.message?.content ?? '';
+          },
+          log: deps.log,
+          onEvent: (ev) => sse('wf', ev as unknown as Record<string, unknown>),
+        });
+        try {
+          const result = await engine.run(def as Parameters<typeof engine.run>[0]);
+          sse('done', { ok: result.ok, outputs: result.outputs, failedSteps: result.failedSteps, runId: result.runId });
+        } catch (err) {
+          sse('error', { message: (err as Error).message });
+        }
+        res.end();
+        return;
+      }
+      if (pathname === '/api/workflow/runs' && req.method === 'GET') {
+        const dir = resolve(deps.workspaceRoot, 'data', 'workflows');
+        let ids: string[] = [];
+        try { ids = (await readdir(dir)).sort().reverse().slice(0, 20); } catch { ids = []; }
+        const runs: Array<Record<string, unknown>> = [];
+        for (const id of ids) {
+          try {
+            const result = JSON.parse(await readFile(resolve(dir, id, 'result.json'), 'utf8')) as Record<string, unknown>;
+            runs.push({ runId: id, name: result.name, ok: result.ok, durationMs: result.durationMs });
+          } catch { runs.push({ runId: id }); }
+        }
+        return json(res, 200, { runs });
+      }
+      if ((m = pathname.match(/^\/api\/workflow\/runs\/([A-Za-z0-9-]+)$/)) && req.method === 'GET') {
+        const dir = resolve(deps.workspaceRoot, 'data', 'workflows', m[1]!);
+        let events: unknown[] = [];
+        let result: unknown = null;
+        try {
+          events = (await readFile(join(dir, 'events.ndjson'), 'utf8')).split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+        } catch { /* 无事件 */ }
+        try { result = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8')); } catch { /* 无结果 */ }
+        return json(res, 200, { events, result });
       }
 
       // ---- 数据备份与恢复（data/ 核心 + notes/ 打包为单文件 JSON） ----

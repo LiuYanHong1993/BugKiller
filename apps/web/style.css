@@ -948,6 +948,27 @@ button.session-item {
   font: 12.5px/1.5 inherit; font-family: inherit;
 }
 .expert-menu button:hover { background: var(--panel3); color: var(--text); }
+
+/* 工作流运行器 */
+.wf-editor-box {
+  background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 14px;
+}
+.wf-json {
+  width: 100%; min-height: 150px; resize: vertical;
+  background: var(--bg); border: 1px solid var(--line); color: var(--text);
+  border-radius: 8px; padding: 10px 12px;
+  font: 12px/1.6 var(--mono); outline: none; white-space: pre;
+}
+.wf-json:focus { border-color: var(--accent); }
+.wf-events {
+  margin-top: 10px; max-height: 320px; overflow-y: auto;
+  background: #0a0b0d; border: 1px solid var(--line-soft); border-radius: 10px;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 4px;
+}
+.wf-ev { display: flex; align-items: center; gap: 8px; font-size: 12px; min-width: 0; }
+.wf-ev .wf-t { color: var(--muted); font-family: var(--mono); font-size: 11px; flex: none; }
+.wf-ev .s-tx { color: var(--text-dim); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conn-list { display: flex; flex-direction: column; gap: 8px; }
 .office-ops { margin: 4px 0; }
 
