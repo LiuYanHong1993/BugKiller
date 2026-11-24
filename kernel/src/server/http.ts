@@ -370,8 +370,13 @@ export function startServer(deps: ServerDeps): Promise<string> {
             sse,
           );
           if (!closed) sse('done', { reply: result.reply, rounds: result.rounds });
+          if (!String(result.reply ?? '').trim()) {
+            const evw = await deps.store.append(sessionId, 'note', { text: '⚠ 模型返回了空回复 —— 通常是思考耗尽了 max tokens 上限，可在 ⚙ 参数中调大后重试' });
+            if (!closed) sse('note', evw as unknown as Record<string, unknown>);
+          }
           void autoTitle(sessionId, text, result.reply); // 流式同样触发自动标题
         } catch (err) {
+          deps.log(`[turn] 回合失败: ${(err as Error).message}`);
           if (!closed) sse('error', { message: (err as Error).message });
         } finally {
           busy.delete(sessionId);

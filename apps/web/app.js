@@ -2881,6 +2881,8 @@ async function send() {
 
   try {
     const wasPlanTurn = state.planMode === true; // 本轮是否计划模式（完成后提供执行入口）
+    let gotDone = false;
+    let gotError = false;
     const res = await fetch(`/api/sessions/${state.sessionId}/turns/stream`, {
       method: 'POST',
       headers: {
@@ -2940,6 +2942,7 @@ async function send() {
           if (data.usage && data.usage.total_tokens) state.stats.tokens += data.usage.total_tokens;
           updateStatusBar();
         } else if (evName === 'done') {
+          gotDone = true;
           if (streamBody) {
             streamText = String(data.reply ?? streamText);
             flushStream();
@@ -2947,6 +2950,10 @@ async function send() {
           }
           finalizeTurn();
           setSessStatus(false, '完成');
+          // 空回复守护：模型把 token 预算耗在思考上 / 返回空内容时给出解释
+          if (!String(data.reply ?? '').trim() && !streamText?.trim()) {
+            appendNote('⚠ 模型返回了空回复 —— 通常是思考耗尽了 max tokens 上限。可点击 ⚙ 调大 max tokens，或简化问题后重试', true);
+          }
           postToHost({ type: 'turn-done', title: state.sessionTitle || '' }); // 最小化时客户端弹气泡
           // 计划模式：回复完成后提供「按计划执行」入口（重发原消息，agent 此时有完整计划在上下文）
           if (wasPlanTurn) {
@@ -2973,6 +2980,7 @@ async function send() {
             }
           }
         } else if (evName === 'error') {
+          gotError = true;
           removeThinking();
           appendNote(`发送失败：${data.message ?? '未知错误'}`, true);
           setSessStatus(false, '失败');
@@ -2984,10 +2992,17 @@ async function send() {
       }
     }
     if (streamBody) { flushStream(); finalizeTurn(); } // 流异常结束但已有内容
+    // 静默断流守护：既没有 done 也没有 error 就结束了（连接被掐断等）→ 必须给用户提示
+    if (!gotDone && !gotError) {
+      removeThinking();
+      appendNote('⚠ 连接中断，本轮回复未完成 —— 模型服务可能不可用。请稍后重试，或检查本地模型端点', true);
+      setSessStatus(false, '中断');
+    }
     refreshSessions();
   } catch (e) {
     if (e.name === 'AbortError') {
       finalizeTurn();
+      appendNote('⏹ 已中断本轮回复（可重新提问或换一种问法）');
       setSessStatus(false, '已中断');
     } else {
       removeThinking();
