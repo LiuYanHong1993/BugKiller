@@ -362,6 +362,7 @@ export function startServer(deps: ServerDeps): Promise<string> {
               signal: ac.signal,
               maxHistoryMessages: 40,
               temperature: runtime.params.temperature,
+              planMode: body?.planMode === true,
               maxTokens: typeof runtime.params.maxTokens === 'number' && runtime.params.maxTokens > 0 ? runtime.params.maxTokens : undefined,
               ...(parts && parts.length ? { parts: parts as unknown as import('../llm/types.ts').ContentPart[] } : {}),
               ...(attachments && attachments.length ? { attachments } : {}),

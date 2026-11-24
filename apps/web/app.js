@@ -2880,6 +2880,7 @@ async function send() {
   };
 
   try {
+    const wasPlanTurn = state.planMode === true; // 本轮是否计划模式（完成后提供执行入口）
     const res = await fetch(`/api/sessions/${state.sessionId}/turns/stream`, {
       method: 'POST',
       headers: {
@@ -2888,6 +2889,7 @@ async function send() {
       },
       body: JSON.stringify({
         text: payload.text,
+        ...(state.planMode ? { planMode: true } : {}),
         ...(payload.parts.length ? { parts: payload.parts } : {}),
         ...(payload.attachments.length ? { attachments: payload.attachments } : {}),
       }),
@@ -2946,6 +2948,30 @@ async function send() {
           finalizeTurn();
           setSessStatus(false, '完成');
           postToHost({ type: 'turn-done', title: state.sessionTitle || '' }); // 最小化时客户端弹气泡
+          // 计划模式：回复完成后提供「按计划执行」入口（重发原消息，agent 此时有完整计划在上下文）
+          if (wasPlanTurn) {
+            state.planMode = false;
+            const pb2 = $('planToggle');
+            if (pb2) pb2.classList.remove('on');
+            const t = state.currentTurn || [...document.querySelectorAll('.turn')].pop();
+            const userText = (t && t.dataset.userText) || '';
+            if (t && userText) {
+              const exec = document.createElement('button');
+              exec.type = 'button';
+              exec.className = 'pbtn accent';
+              exec.textContent = '▶ 按计划执行';
+              exec.style.margin = '6px 0';
+              exec.onclick = () => {
+                state.planMode = false;
+                const pb3 = $('planToggle');
+                if (pb3) pb3.classList.remove('on');
+                $('input').value = userText;
+                fitInput();
+                send();
+              };
+              t.appendChild(exec);
+            }
+          }
         } else if (evName === 'error') {
           removeThinking();
           appendNote(`发送失败：${data.message ?? '未知错误'}`, true);
@@ -3549,6 +3575,17 @@ function boot() {
   if (paramsBtn) paramsBtn.innerHTML = icon('slidersHorizontal', 14);
   const sendBtn = $('send');
   if (sendBtn) sendBtn.innerHTML = icon('arrowUp', 14);
+  const planBtn = document.createElement('button');
+  planBtn.type = 'button';
+  planBtn.className = 'cbtn';
+  planBtn.id = 'planToggle';
+  planBtn.title = '计划模式：agent 先出执行计划，确认后再动手';
+  planBtn.innerHTML = `${icon('listFilter', 13)} 计划`;
+  planBtn.onclick = () => {
+    state.planMode = !state.planMode;
+    planBtn.classList.toggle('on', state.planMode);
+  };
+  sendBtn.parentNode.insertBefore(planBtn, sendBtn);
   applyTheme(loadTheme());
   state.groups = loadGroups();
   state.collapsedGroups = loadSet('myagentGroupsCollapsed');

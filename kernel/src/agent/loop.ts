@@ -180,7 +180,7 @@ async function compactIfNeeded(
 export async function runTurnStream(
   userText: string,
   history: ChatMessage[],
-  deps: LoopDeps & { signal?: AbortSignal; maxTokens?: number; temperature?: number; parts?: ChatMessage['content']; attachments?: string[] },
+  deps: LoopDeps & { signal?: AbortSignal; maxTokens?: number; temperature?: number; planMode?: boolean; parts?: ChatMessage['content']; attachments?: string[] },
   emit: StreamEmit,
 ): Promise<TurnResult> {
   const { provider, registry, ctx } = deps;
@@ -202,8 +202,16 @@ export async function runTurnStream(
   });
   if (userEv) emit('user', userEv as unknown as Record<string, unknown>);
 
+  const planMode = deps.planMode === true;
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt(ctx.workspaceRoot, registry.names()) },
+    {
+      role: 'system',
+      content:
+        buildSystemPrompt(ctx.workspaceRoot, registry.names()) +
+        (planMode
+          ? '\n\n[计划模式] 当前为计划模式：请只输出完成该任务的简要执行计划（编号步骤列表，说明每一步用什么能力），不要调用任何工具、不要执行任何操作。等待用户确认后再执行。'
+          : ''),
+    },
     ...history,
   ];
   const track = (m: ChatMessage): void => {
@@ -225,7 +233,12 @@ export async function runTurnStream(
     let res;
     try {
       res = await provider.chatStream(
-        { messages, tools: registry.toSpecs(), maxTokens: deps.maxTokens, temperature: deps.temperature },
+        {
+          messages,
+          ...(planMode ? {} : { tools: registry.toSpecs() }),
+          maxTokens: deps.maxTokens,
+          temperature: deps.temperature,
+        },
         {
           signal: deps.signal,
           onDelta: (t) => {
