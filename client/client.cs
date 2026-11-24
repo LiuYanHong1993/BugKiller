@@ -365,10 +365,10 @@ namespace AgentPlatform
                 _restarts++;
                 if (_restarts > 3)
                 {
-                    _tray.ShowBalloonTip(5000, "agent-platform", "内核连续崩溃超过 3 次，已停止。请查看 data\\client.log", ToolTipIcon.Error);
+                    NotifyToast.ShowToast("⚠ 内核连续崩溃", "已停止 —— 点此查看日志", delegate { ShowMain(); });
                     return;
                 }
-                _tray.ShowBalloonTip(3000, "agent-platform", "内核退出，2 秒后自动重启（" + _restarts + "/3）", ToolTipIcon.Warning);
+                NotifyToast.ShowToast("⚠ 内核退出", "2 秒后自动重启（" + _restarts + "/3）", delegate { ShowMain(); });
                 if (_restartTimer == null)
                 {
                     _restartTimer = new System.Windows.Forms.Timer();
@@ -387,7 +387,7 @@ namespace AgentPlatform
         {
             Log("URL 就绪回调: " + url);
             if (_form != null && !_form.IsDisposed) _form.LoadInto(url);
-            _tray.ShowBalloonTip(3000, "agent-platform", "已就绪：" + url, ToolTipIcon.Info);
+            NotifyToast.ShowToast("BugKiller 已就绪", "点此打开主窗口", delegate { ShowMain(); });
         }
 
         public string KernelUrl
@@ -579,11 +579,13 @@ namespace AgentPlatform
     {
         private readonly System.Windows.Forms.Timer _timer;
         private readonly string _clickUrl;
+        private readonly System.Action _onClick;
 
-        /// <summary>点击提示窗：关闭并（可选）打开链接</summary>
+        /// <summary>点击提示窗：关闭并（可选）打开链接 / 执行动作</summary>
         private void CloseAndOpen()
         {
             try { Close(); } catch { }
+            if (_onClick != null) { try { _onClick(); } catch { } return; }
             if (!string.IsNullOrEmpty(_clickUrl))
             {
                 try
@@ -612,9 +614,10 @@ namespace AgentPlatform
             }
         }
 
-        private NotifyToast(string title, string text, string clickUrl)
+        private NotifyToast(string title, string text, string clickUrl, System.Action onClick = null)
         {
             _clickUrl = clickUrl;
+            _onClick = onClick;
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual;
             ShowInTaskbar = false;
@@ -666,18 +669,29 @@ namespace AgentPlatform
             _timer.Start();
         }
 
-        /// <summary>显示一条右下角提示（不依赖系统通知设置）</summary>
+                /// <summary>显示一条右下角提示（不依赖系统通知设置）</summary>
         internal static void ShowToast(string title, string text)
         {
-            ShowToast(title, text, null);
+            ShowToast(title, text, null, null);
         }
 
         /// <summary>显示提示；clickUrl 非空时点击打开（如更新下载页）</summary>
         internal static void ShowToast(string title, string text, string clickUrl)
         {
+            ShowToast(title, text, clickUrl, null);
+        }
+
+        /// <summary>显示提示；onClick 自定义点击动作（如打开主窗口）</summary>
+        internal static void ShowToast(string title, string text, System.Action onClick)
+        {
+            ShowToast(title, text, null, onClick);
+        }
+
+        private static void ShowToast(string title, string text, string clickUrl, System.Action onClick)
+        {
             try
             {
-                NotifyToast toast = new NotifyToast(title, text, clickUrl);
+                NotifyToast toast = new NotifyToast(title, text, clickUrl, onClick);
                 toast.Show();
             }
             catch { }
