@@ -105,8 +105,8 @@ npm run package             # 产物：dist/agent-platform-<version>.zip
 
 下一阶段候选功能（按价值/成本排序）：
 
-- [ ] **自动更新器落地**：从 GitHub Releases 下载新包 → 验签 → 替换 exe → 自动重启（现在只有检查 + 跳转下载页）；含升级失败回滚
-- [ ] **打包跨版本数据迁移**：package.mjs 从最近旧版本 stage 迁移 data/（会话/设置/记忆），版本号变更不再丢用户数据
+- [x] **自动更新器落地**：从 GitHub Releases 下载新包 → 验签 → 替换 exe → 自动重启（现在只有检查 + 跳转下载页）；含升级失败回滚
+- [x] **打包跨版本数据迁移**：package.mjs 从最近旧版本 stage 迁移 data/（会话/设置/记忆），版本号变更不再丢用户数据
 - [ ] **多模型 / 多端点管理**：多个 provider 配置（本地 llama-server / 云端 API），会话级模型下拉切换，端点失败自动 fallback
 - [ ] **模型健康监控**：后台心跳探测本地端点，崩溃自动标记 + 状态栏提示 + 一键重启引导（解决 llama-server 静默崩溃）
 - [ ] **定时任务**：cron / 一次性定时触发会话回合（后台静默执行，完成后 NotifyToast 通知），data/jobs/ 持久化

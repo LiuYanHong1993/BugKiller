@@ -3336,6 +3336,14 @@ function renderSettingsPage() {
   };
   drawUsage();
 
+  const updCard = pageCard('版本与更新', '检查 GitHub Releases 新版本；发现新版可一键下载并验签安装',
+    '<button class="pbtn accent" id="updCheck">检查更新</button>');
+  stream.appendChild(updCard);
+  updCard.querySelector('#updCheck').onclick = () => {
+    appendNote('🔄 正在检查更新…（有结果会弹右下角提示）');
+    postToHost({ type: 'check-update' });
+  };
+
   const logCard = pageCard('内核日志', '实时查看内核运行日志（最近 400 行）',
     '<button class="pbtn accent" id="logOpen">打开日志查看器</button>');
   stream.appendChild(logCard);

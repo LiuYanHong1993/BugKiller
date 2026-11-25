@@ -63,17 +63,28 @@ function copyTree(src, dest, opts = {}) {
 }
 
 // ---- 2. 暂存目录（干净树：先清掉上次构建残留；stage data/ 是便携用户数据，先备份后还原） ----
+// 跨版本迁移：新版本 stage 目录不存在 → 从 dist 下最近一个含 data/ 的旧版本 stage 继承用户数据
 const dataBackup = join(distDir, '.data-backup');
 if (existsSync(dataBackup)) rmSync(dataBackup, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
-if (existsSync(stageRoot)) {
-  const prevData = join(stageRoot, 'data');
-  if (existsSync(prevData)) {
-    rmSync(dataBackup, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
-    copyTree(prevData, dataBackup, { tolerant: true });
-    // WebView2 浏览缓存：运行中的客户端会锁文件（EBUSY）→ 备份/还原都排除，客户端自动重建
-    rmSync(join(dataBackup, 'webview2-profile'), { recursive: true, force: true });
+let prevData = join(stageRoot, 'data');
+if (!existsSync(prevData)) {
+  const cands = readdirSync(distDir)
+    .filter((n) => /^agent-platform-\d/.test(n) && n !== `agent-platform-${version}` && statSync(join(distDir, n)).isDirectory())
+    .map((n) => ({ n, v: n.replace('agent-platform-', '') }))
+    .filter((o) => existsSync(join(distDir, o.n, 'data')))
+    .sort((a, b) => b.v.localeCompare(a.v, undefined, { numeric: true }));
+  if (cands[0]) {
+    prevData = join(distDir, cands[0].n, 'data');
+    console.log(`[package] 跨版本数据迁移：继承自 ${cands[0].n}/data`);
   }
+}
+if (existsSync(stageRoot)) {
   rmSync(stageRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+}
+if (existsSync(prevData)) {
+  copyTree(prevData, dataBackup, { tolerant: true });
+  // WebView2 浏览缓存：运行中的客户端会锁文件（EBUSY）→ 备份/还原都排除，客户端自动重建
+  rmSync(join(dataBackup, 'webview2-profile'), { recursive: true, force: true });
 }
 mkdirSync(stageRoot, { recursive: true });
 
@@ -104,7 +115,8 @@ if (csc) {
   const icoFile = join(repoRoot, 'client', 'app.ico');
   if (existsSync(icoFile)) csArgs.push(`/win32icon:${icoFile}`);
   if (hasWv2) csArgs.push('/define:WEBVIEW2');
-  csArgs.push('/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Core.dll');
+  csArgs.push('/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Core.dll',
+    '/r:System.IO.Compression.dll', '/r:System.IO.Compression.FileSystem.dll');
   if (hasWv2) {
     csArgs.push(
       `/r:${join(wv2Dir, 'Microsoft.Web.WebView2.Core.dll')}`,
